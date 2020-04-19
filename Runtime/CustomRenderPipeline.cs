@@ -1,10 +1,17 @@
-﻿namespace UnityEngine.Rendering.CustomRenderPipeline
+﻿using UnityEngine.Experimental.Rendering;
+
+namespace UnityEngine.Rendering.CustomRenderPipeline
 {
     public sealed class CustomRenderPipeline : RenderPipeline
     {
+        private RTHandle[] m_GBuffers;
+        private RenderTargetIdentifier[] m_GBufferRTIDs;
+        private RTHandle m_DepthBuffer;
+        private RenderTargetIdentifier m_DepthBufferRTID;
+        private int m_GBufferCount = 3;
         public CustomRenderPipeline(CustomRenderPipelineAsset asset)
         {
-
+            CreateGBuffers();
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
@@ -35,6 +42,9 @@
         {
             bool enableDynamicBatching = false;
             bool enableInstancing = false;
+            
+            context.SetupCameraProperties(camera);
+            
             PerObjectData perObjectData = PerObjectData.None;
 
             FilteringSettings opaqueFilteringSettings = new FilteringSettings(RenderQueueRange.opaque);
@@ -69,6 +79,32 @@
             // Several submits can be done in a frame to better controls CPU/GPU workload.
             context.Submit();
         }
-    }
 
+        void CreateGBuffers()
+        {
+            m_GBuffers[0] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureXR.dimension, useDynamicScale: true, name: string.Format("GBuffer{0}", 0), enableRandomWrite: false);
+            m_GBuffers[1] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R16G16B16A16_SFloat, dimension: TextureXR.dimension, useDynamicScale: true, name: string.Format("GBuffer{0}", 1), enableRandomWrite: false);
+            m_GBuffers[2] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureXR.dimension, useDynamicScale: true, name: string.Format("GBuffer{0}", 1), enableRandomWrite: false);
+
+            for (var i = 0;i<m_GBufferCount;i++)
+                m_GBufferRTIDs[i] = m_GBuffers[i].nameID;
+        }
+
+        void DestroyGBuffers()
+        {
+            for (var i = 0; i < m_GBufferCount; i++)
+            {
+                RTHandles.Release(m_GBuffers[i]);
+                m_GBuffers[i] = null;
+            }
+            
+        }
+        protected override void Dispose(bool disposing)
+        {
+            DestroyGBuffers();
+        }
+
+    }
+    
+    
 }
