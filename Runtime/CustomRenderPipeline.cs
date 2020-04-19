@@ -11,6 +11,8 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         private int m_GBufferCount = 3;
         public CustomRenderPipeline(CustomRenderPipelineAsset asset)
         {
+            RTHandles.Initialize(1, 1, false, MSAASamples.None);
+
             CreateGBuffers();
         }
 
@@ -55,7 +57,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
 
             // ShaderTagId must match the "LightMode" tag inside the shader pass.
             // If not "LightMode" tag is found the object won't render.
-            DrawingSettings opaqueDrawingSettings = new DrawingSettings(ShaderPassTag.forwardLit, opaqueSortingSettings);
+            DrawingSettings opaqueDrawingSettings = new DrawingSettings(ShaderPassTag.ForwardLit, opaqueSortingSettings);
             opaqueDrawingSettings.enableDynamicBatching = enableDynamicBatching;
             opaqueDrawingSettings.enableInstancing = enableInstancing;
             opaqueDrawingSettings.perObjectData = perObjectData;
@@ -70,6 +72,10 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             // Render Opaque objects given the filtering and settings computed above.
             // This functions will sort and batch objects.
             context.DrawRenderers(cullingResults, ref opaqueDrawingSettings, ref opaqueFilteringSettings);
+            
+            
+            
+            // DrawGBuffers
 
             // Renders skybox if required
             if (camera.clearFlags == CameraClearFlags.Skybox && RenderSettings.skybox != null)
@@ -82,6 +88,8 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
 
         void CreateGBuffers()
         {
+            m_GBuffers = new RTHandle[m_GBufferCount];
+            m_GBufferRTIDs = new RenderTargetIdentifier[m_GBufferCount];
             m_GBuffers[0] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureXR.dimension, useDynamicScale: true, name: string.Format("GBuffer{0}", 0), enableRandomWrite: false);
             m_GBuffers[1] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R16G16B16A16_SFloat, dimension: TextureXR.dimension, useDynamicScale: true, name: string.Format("GBuffer{0}", 1), enableRandomWrite: false);
             m_GBuffers[2] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureXR.dimension, useDynamicScale: true, name: string.Format("GBuffer{0}", 1), enableRandomWrite: false);
