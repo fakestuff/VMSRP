@@ -11,7 +11,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         private int m_GBufferCount = 3;
         public CustomRenderPipeline(CustomRenderPipelineAsset asset)
         {
-            RTHandles.Initialize(1, 1, false, MSAASamples.None);
+            RTHandles.Initialize(1920, 1080, false, MSAASamples.None);
 
             CreateGBuffers();
         }
@@ -68,18 +68,25 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             cmd.ClearRenderTarget(true, true, camera.backgroundColor);
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
-
-            // Render Opaque objects given the filtering and settings computed above.
-            // This functions will sort and batch objects.
             context.DrawRenderers(cullingResults, ref opaqueDrawingSettings, ref opaqueFilteringSettings);
-            
-            
-            
-            // DrawGBuffers
-
             // Renders skybox if required
             if (camera.clearFlags == CameraClearFlags.Skybox && RenderSettings.skybox != null)
                 context.DrawSkybox(camera);
+            // Render Opaque objects given the filtering and settings computed above.
+            // This functions will sort and batch objects.
+            
+            // DrawGBuffers
+            DrawingSettings gBufferDrawingSettings = new DrawingSettings(ShaderPassTag.GBuffer, opaqueSortingSettings);
+            gBufferDrawingSettings.enableDynamicBatching = enableDynamicBatching;
+            gBufferDrawingSettings.enableInstancing = enableInstancing;
+            gBufferDrawingSettings.perObjectData = perObjectData;
+            cmd = CommandBufferPool.Get();
+            CoreUtils.SetRenderTarget(cmd, m_GBufferRTIDs, m_DepthBufferRTID, ClearFlag.All);
+            context.ExecuteCommandBuffer(cmd);
+            CommandBufferPool.Release(cmd);
+            context.DrawRenderers(cullingResults, ref opaqueDrawingSettings, ref opaqueFilteringSettings);
+
+            
 
             // Submit commands to GPU. Up to this point all commands have been enqueued in the context.
             // Several submits can be done in a frame to better controls CPU/GPU workload.
@@ -96,6 +103,9 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
 
             for (var i = 0;i<m_GBufferCount;i++)
                 m_GBufferRTIDs[i] = m_GBuffers[i].nameID;
+            
+            m_DepthBuffer = RTHandles.Alloc(1920, 1080, colorFormat: GraphicsFormat.None, depthBufferBits: DepthBits.Depth32,dimension: TextureXR.dimension, useDynamicScale: true, name: string.Format("GBuffer{0}", 0), enableRandomWrite: false);
+            
         }
 
         void DestroyGBuffers()

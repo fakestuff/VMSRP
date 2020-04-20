@@ -1,4 +1,4 @@
-﻿Shader "Custom SRP/Unlit"
+﻿Shader "CustomSRP/Unlit"
 {
     Properties
     {
