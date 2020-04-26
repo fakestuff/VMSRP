@@ -1,4 +1,4 @@
-﻿Shader "CustomSRP/Lit"
+﻿Shader "CustomSRP/GBuffer"
 {
     Properties
     {
@@ -38,7 +38,7 @@
 //        _EmissionMap("Emission", 2D) = "white" {}
         
         // GBuffer
-        [HideInInspector] _StencilRefGBuffer("_StencilRefGBuffer", Int) = 2 // StencilLightingUsage.RegularLighting
+        /*[HideInInspector] _StencilRefGBuffer("_StencilRefGBuffer", Int) = 2 // StencilLightingUsage.RegularLighting
         [HideInInspector] _StencilWriteMaskGBuffer("_StencilWriteMaskGBuffer", Int) = 3 // StencilMask.Lighting
 
         // Blending state
@@ -50,34 +50,34 @@
         [HideInInspector] _ZWrite("__zw", Float) = 1.0
         [HideInInspector] _Cull("__cull", Float) = 2.0
 
-        _ReceiveShadows("Receive Shadows", Float) = 1.0
+        _ReceiveShadows("Receive Shadows", Float) = 1.0*/
     }
 
     SubShader
     {
-        Tags{"RenderPipeline" = "CustomSRP"}
-
+        Tags { "RenderType" = "Opaque" "RenderPipeline" = ""}
+        LOD 100
         Pass
         {
             Name "GBuffer"
             Tags { "LightMode" = "GBuffer" } // This will be only for opaque object based on the RenderQueue index
 
-            Blend[_SrcBlend][_DstBlend]
+            /*Blend[_SrcBlend][_DstBlend]
             ZWrite[_ZWrite]
-            Cull[_Cull]
+            Cull[_Cull]*/
             
-            Stencil
+            /*Stencil
             {
                 WriteMask [_StencilWriteMaskGBuffer]
                 Ref [_StencilRefGBuffer]
                 Comp Always
                 Pass Replace
-            }
+            }*/
 
             HLSLPROGRAM
             // -------------------------------------
             // Material Keywords
-            #pragma shader_feature _NORMALMAP
+            /*#pragma shader_feature _NORMALMAP
             #pragma shader_feature _ALPHATEST_ON
             #pragma shader_feature _ALPHAPREMULTIPLY_ON
             #pragma shader_feature _EMISSION
@@ -93,11 +93,11 @@
             // -------------------------------------
             // Unity defined keywords
             #pragma multi_compile _ DIRLIGHTMAP_COMBINED
-            #pragma multi_compile _ LIGHTMAP_ON
+            #pragma multi_compile _ LIGHTMAP_ON*/
 
             //--------------------------------------
             // GPU Instancing
-            #pragma multi_compile_instancing
+            //#pragma multi_compile_instancing
         
             #pragma vertex Vert
             #pragma fragment Frag
@@ -134,10 +134,14 @@
             }
 
             void Frag(Varyings IN,
-                out half4 GBuffer0 : SV_Target0,
-                out half4 GBuffer1 : SV_Target1,
-                out half4 GBuffer2 : SV_Target2)
+                out half4 GBuffer0 : SV_Target0)
+            //    out half4 GBuffer1 : SV_Target1,
+            //    out half4 GBuffer2 : SV_Target2)
+            //half4 Frag (Varyings IN) : SV_Target
             {
+                GBuffer0 = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, IN.uv) * _BaseColor;
+            }
+            //{
                 //SurfaceData surfaceData;
                 //InitializeStandardLitSurfaceData(IN.uv, surfaceData);
 
@@ -147,16 +151,16 @@
                 //BRDFData brdfData;
                 //InitializeBRDFData(surfaceData.albedo, surfaceData.metallic, surfaceData.specular, surfaceData.smoothness, surfaceData.alpha, brdfData);
 
-                GBuffer0 = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, IN.uv) * _BaseColor;
+                //GBuffer0 = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, IN.uv) * _BaseColor;
                 //GBuffer1 = half4(brdfData.specular, brdfData.roughness);
                 //GBuffer2 = half4(inputData.normalWS * 0.5h + 0.5h, 1.0h);
                 //GBuffer3 = half4(GlobalIllumination(brdfData, inputData.bakedGI, surfaceData.occlusion, inputData.normalWS, inputData.viewDirectionWS) + surfaceData.emission, 1.0h);
-            }
+            //}
             ENDHLSL
         }
 
         //UsePass "LightweightPipeline/Standard (Physically Based)/Meta"
     }
-    FallBack "Hidden/InternalErrorShader"
+    //FallBack "Hidden/InternalErrorShader"
     //CustomEditor "LightweightStandardGUI"
 }

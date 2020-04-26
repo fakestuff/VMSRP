@@ -12,7 +12,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         private MSAASamples m_MSAASample = MSAASamples.None;
         public CustomRenderPipeline(CustomRenderPipelineAsset asset)
         {
-            RTHandles.Initialize(1, 1, false, MSAASamples.None);
+            RTHandles.Initialize(1920, 1080, false, MSAASamples.None);
 
             CreateGBuffers();
         }
@@ -66,7 +66,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
 
             // ShaderTagId must match the "LightMode" tag inside the shader pass.
             // If not "LightMode" tag is found the object won't render.
-            DrawingSettings opaqueDrawingSettings = new DrawingSettings(ShaderPassTag.ForwardLit, opaqueSortingSettings);
+            DrawingSettings opaqueDrawingSettings = new DrawingSettings(ShaderPassTag.GBuffer, opaqueSortingSettings);
             opaqueDrawingSettings.enableDynamicBatching = enableDynamicBatching;
             opaqueDrawingSettings.enableInstancing = enableInstancing;
             opaqueDrawingSettings.perObjectData = perObjectData;
@@ -89,8 +89,10 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             gBufferDrawingSettings.enableDynamicBatching = enableDynamicBatching;
             gBufferDrawingSettings.enableInstancing = enableInstancing;
             gBufferDrawingSettings.perObjectData = perObjectData;
-            cmd = CommandBufferPool.Get();
-            CoreUtils.SetRenderTarget(cmd, m_GBufferRTIDs, m_DepthBufferRTID, ClearFlag.All);
+            cmd = CommandBufferPool.Get("Gbuffer");
+            cmd.SetRenderTarget(m_GBufferRTIDs,m_DepthBufferRTID);
+            cmd.ClearRenderTarget(true, true, camera.backgroundColor);
+            //CoreUtils.SetRenderTarget(cmd, m_GBufferRTIDs, m_DepthBufferRTID, ClearFlag.All);
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
             context.DrawRenderers(cullingResults, ref opaqueDrawingSettings, ref opaqueFilteringSettings);
@@ -113,8 +115,8 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             for (var i = 0;i<m_GBufferCount;i++)
                 m_GBufferRTIDs[i] = m_GBuffers[i].nameID;
             
-            m_DepthBuffer = RTHandles.Alloc(Vector2.one, colorFormat: GraphicsFormat.None, depthBufferBits: DepthBits.Depth32,dimension: TextureXR.dimension, useDynamicScale: true, name: string.Format("GBuffer{0}", 0), enableRandomWrite: false);
-            
+            m_DepthBuffer = RTHandles.Alloc(Vector2.one, TextureXR.slices, DepthBits.Depth32, dimension: TextureXR.dimension, useDynamicScale: true, name: "CameraDepthStencil");
+            m_DepthBufferRTID = m_DepthBuffer.nameID;
         }
 
         void DestroyGBuffers()
