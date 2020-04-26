@@ -9,15 +9,24 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         private RTHandle m_DepthBuffer;
         private RenderTargetIdentifier m_DepthBufferRTID;
         private int m_GBufferCount = 3;
+        private MSAASamples m_MSAASample = MSAASamples.None;
         public CustomRenderPipeline(CustomRenderPipelineAsset asset)
         {
-            RTHandles.Initialize(1920, 1080, false, MSAASamples.None);
+            RTHandles.Initialize(1, 1, false, MSAASamples.None);
 
             CreateGBuffers();
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
         {
+            int maxWidth = 1;
+            int maxHeight = 1;
+            foreach (var camera in cameras)
+            {
+                maxWidth = Mathf.Max(maxWidth, camera.pixelWidth);
+                maxHeight = Mathf.Max(maxHeight, camera.pixelHeight);
+            }
+            RTHandles.SetReferenceSize(maxWidth,maxHeight,m_MSAASample);
             ShaderBindings.SetPerFrameShaderVariables(context);
             foreach (Camera camera in cameras)
             {
@@ -104,7 +113,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             for (var i = 0;i<m_GBufferCount;i++)
                 m_GBufferRTIDs[i] = m_GBuffers[i].nameID;
             
-            m_DepthBuffer = RTHandles.Alloc(1920, 1080, colorFormat: GraphicsFormat.None, depthBufferBits: DepthBits.Depth32,dimension: TextureXR.dimension, useDynamicScale: true, name: string.Format("GBuffer{0}", 0), enableRandomWrite: false);
+            m_DepthBuffer = RTHandles.Alloc(Vector2.one, colorFormat: GraphicsFormat.None, depthBufferBits: DepthBits.Depth32,dimension: TextureXR.dimension, useDynamicScale: true, name: string.Format("GBuffer{0}", 0), enableRandomWrite: false);
             
         }
 
@@ -115,7 +124,9 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
                 RTHandles.Release(m_GBuffers[i]);
                 m_GBuffers[i] = null;
             }
-            
+            RTHandles.Release(m_DepthBuffer);
+            m_DepthBuffer = null;
+
         }
         protected override void Dispose(bool disposing)
         {
