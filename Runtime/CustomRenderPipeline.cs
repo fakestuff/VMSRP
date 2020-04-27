@@ -1,4 +1,5 @@
-﻿using UnityEngine.Experimental.Rendering;
+﻿using System.Collections.Generic;
+using UnityEngine.Experimental.Rendering;
 
 namespace UnityEngine.Rendering.CustomRenderPipeline
 {
@@ -12,11 +13,16 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         private RenderTargetIdentifier m_DepthBufferRTID;
         private int m_GBufferCount = 3;
         private MSAASamples m_MSAASample = MSAASamples.None;
+
+        private Shader m_DeferredLitShader;
+        private Material m_DeferredLightingMat;
+        MaterialPropertyBlock m_LightPropertiesBlock = new MaterialPropertyBlock();
         public CustomRenderPipeline(CustomRenderPipelineAsset asset)
         {
-            RTHandles.Initialize(1920, 1080, false, MSAASamples.None);
+            RTHandles.Initialize(1, 1, false, MSAASamples.None);
             CreateSharedBuffer();
             CreateGBuffers();
+            m_DeferredLightingMat = CoreUtils.CreateEngineMaterial(Shader.Find("CustomSRP/DeferredLighting"));
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
@@ -101,29 +107,49 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
 
             
 
+            
+
+            DeferredLightPass(context, camera);
+            cmd = CommandBufferPool.Get("FinalBlit");
+            cmd.Blit(m_ColorBufferRTID, BuiltinRenderTextureType.CameraTarget);
+            context.ExecuteCommandBuffer(cmd);
+            CommandBufferPool.Release(cmd);
             // Submit commands to GPU. Up to this point all commands have been enqueued in the context.
             // Several submits can be done in a frame to better controls CPU/GPU workload.
             context.Submit();
         }
 
+        void DeferredLightPass(ScriptableRenderContext context, Camera camera)
+        {
+            var cmd = CommandBufferPool.Get("DeferredLightPass");
+            // Bind buffers
+            cmd.SetGlobalTexture("_GBufferAlbedo", m_GBufferRTIDs[0]);
+            cmd.SetGlobalTexture("_GBufferNormal", m_GBufferRTIDs[1]);
+            cmd.SetGlobalTexture("_GBufferMetallicOcclusionSmoothness", m_GBufferRTIDs[2]);
+            //Set RenderTarget
+            cmd.SetRenderTarget(m_ColorBuffer,RenderBufferLoadAction.DontCare,RenderBufferStoreAction.Store);
+
+            cmd.DrawProcedural(Matrix4x4.identity, m_DeferredLightingMat, 0, MeshTopology.Triangles,3,1,m_LightPropertiesBlock);
+            
+            context.ExecuteCommandBuffer(cmd);
+            CommandBufferPool.Release(cmd);
+        }
         void CreateGBuffers()
         {
             m_GBuffers = new RTHandle[m_GBufferCount];
             m_GBufferRTIDs = new RenderTargetIdentifier[m_GBufferCount];
-            m_GBuffers[0] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureXR.dimension, useDynamicScale: true, name: "Albedo", enableRandomWrite: false);
-            m_GBuffers[1] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R16G16B16A16_SFloat, dimension: TextureXR.dimension, useDynamicScale: true, name: "Normal", enableRandomWrite: false);
-            m_GBuffers[2] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureXR.dimension, useDynamicScale: true, name: "MSO", enableRandomWrite: false);
+            m_GBuffers[0] = RTHandles.Alloc(Vector2.one,  colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension:TextureDimension.Tex2D, useDynamicScale: true, name: "Albedo", enableRandomWrite: false);
+            m_GBuffers[1] = RTHandles.Alloc(Vector2.one,  colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureDimension.Tex2D, useDynamicScale: true, name: "Normal", enableRandomWrite: false);
+            m_GBuffers[2] = RTHandles.Alloc(Vector2.one,  colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureDimension.Tex2D, useDynamicScale: true, name: "MSO", enableRandomWrite: false);
 
             for (var i = 0;i<m_GBufferCount;i++)
                 m_GBufferRTIDs[i] = m_GBuffers[i].nameID;
-            
-            
         }
 
         void CreateSharedBuffer()
         {
-            m_ColorBuffer = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R16G16B16A16_SFloat, dimension: TextureXR.dimension, useDynamicScale: true, name: "CameraHDRColor", enableRandomWrite: false);
-            m_DepthBuffer = RTHandles.Alloc(Vector2.one, TextureXR.slices, DepthBits.Depth32, dimension: TextureXR.dimension, useDynamicScale: true, name: "CameraDepthStencil");
+            m_ColorBuffer = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R16G16B16A16_SFloat, dimension: TextureDimension.Tex2D, useDynamicScale: true, name: "CameraHDRColor", enableRandomWrite: false);
+            m_DepthBuffer = RTHandles.Alloc(Vector2.one, TextureXR.slices, DepthBits.Depth32, dimension: TextureDimension.Tex2D, useDynamicScale: true, name: "CameraDepthStencil");
             m_ColorBufferRTID = m_ColorBuffer.nameID;
             m_DepthBufferRTID = m_DepthBuffer.nameID;
         }

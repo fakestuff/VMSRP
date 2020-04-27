@@ -4,6 +4,10 @@
     {
         [MainTexture] _BaseMap ("Texture", 2D) = "white" {}
         [MainColor] _BaseColor ("Color", Color) = (1.0, 1.0, 1.0, 1.0)
+        _MetallicGlossMap("MetallicOcSmoothness", 2D) = "black" {}
+        _BumpScale("Scale", Float) = 1.0
+        _BumpMap("Normal Map", 2D) = "bump" {}
+        
 //        // Specular vs Metallic workflow
 //        [HideInInspector] _WorkflowMode("WorkflowMode", Float) = 1.0
 //
@@ -102,15 +106,21 @@
             #pragma vertex Vert
             #pragma fragment Frag
             #include "Packages/com.render-pipelines.custom/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Packing.hlsl"
             //#include "LWRP/ShaderLibrary/InputSurfacePBR.hlsl"
             //#include "LWRP/ShaderLibrary/LightweightPassLit.hlsl"
             
             TEXTURE2D(_BaseMap);
             SAMPLER(sampler_BaseMap);
+            TEXTURE2D(_BumpMap);
+            SAMPLER(sampler_BumpMap);
+            TEXTURE2D(_MetallicGlossMap);
+            SAMPLER(sampler_MetallicGlossMap);
 
             CBUFFER_START(UnityPerMaterial)
             float4 _BaseMap_ST;
             half4 _BaseColor;
+            half _BumpScale;
             CBUFFER_END
             
             struct Attributes
@@ -141,8 +151,10 @@
             {
             
                 GBuffer0 = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, IN.uv) * _BaseColor;
-                GBuffer1 = half4(1,0,0,1);
-                GBuffer2 = half4(0.3,0.3,0.3,1);
+                
+                // Translate normal into world space
+                GBuffer1 = half4(UnpackNormalScale(SAMPLE_TEXTURE2D(_BumpMap, sampler_BumpMap, IN.uv), _BumpScale),1.0);
+                GBuffer2 = SAMPLE_TEXTURE2D(_MetallicGlossMap, sampler_MetallicGlossMap, IN.uv);
             }
             //{
                 //SurfaceData surfaceData;
