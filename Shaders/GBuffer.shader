@@ -134,12 +134,15 @@
             }
 
             void Frag(Varyings IN,
-                out half4 GBuffer0 : SV_Target0)
-            //    out half4 GBuffer1 : SV_Target1,
-            //    out half4 GBuffer2 : SV_Target2)
+                out half4 GBuffer0 : SV_Target0,
+                out half4 GBuffer1 : SV_Target1,
+                out half4 GBuffer2 : SV_Target2)
             //half4 Frag (Varyings IN) : SV_Target
             {
+            
                 GBuffer0 = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, IN.uv) * _BaseColor;
+                GBuffer1 = half4(1,0,0,1);
+                GBuffer2 = half4(0.3,0.3,0.3,1);
             }
             //{
                 //SurfaceData surfaceData;

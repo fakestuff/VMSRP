@@ -6,6 +6,8 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
     {
         private RTHandle[] m_GBuffers;
         private RenderTargetIdentifier[] m_GBufferRTIDs;
+        private RTHandle m_ColorBuffer;
+        private RenderTargetIdentifier m_ColorBufferRTID;
         private RTHandle m_DepthBuffer;
         private RenderTargetIdentifier m_DepthBufferRTID;
         private int m_GBufferCount = 3;
@@ -13,7 +15,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         public CustomRenderPipeline(CustomRenderPipelineAsset asset)
         {
             RTHandles.Initialize(1920, 1080, false, MSAASamples.None);
-
+            CreateSharedBuffer();
             CreateGBuffers();
         }
 
@@ -108,14 +110,21 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         {
             m_GBuffers = new RTHandle[m_GBufferCount];
             m_GBufferRTIDs = new RenderTargetIdentifier[m_GBufferCount];
-            m_GBuffers[0] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureXR.dimension, useDynamicScale: true, name: string.Format("GBuffer{0}", 0), enableRandomWrite: false);
-            m_GBuffers[1] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R16G16B16A16_SFloat, dimension: TextureXR.dimension, useDynamicScale: true, name: string.Format("GBuffer{0}", 1), enableRandomWrite: false);
-            m_GBuffers[2] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureXR.dimension, useDynamicScale: true, name: string.Format("GBuffer{0}", 1), enableRandomWrite: false);
+            m_GBuffers[0] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureXR.dimension, useDynamicScale: true, name: "Albedo", enableRandomWrite: false);
+            m_GBuffers[1] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R16G16B16A16_SFloat, dimension: TextureXR.dimension, useDynamicScale: true, name: "Normal", enableRandomWrite: false);
+            m_GBuffers[2] = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureXR.dimension, useDynamicScale: true, name: "MSO", enableRandomWrite: false);
 
             for (var i = 0;i<m_GBufferCount;i++)
                 m_GBufferRTIDs[i] = m_GBuffers[i].nameID;
             
+            
+        }
+
+        void CreateSharedBuffer()
+        {
+            m_ColorBuffer = RTHandles.Alloc(Vector2.one, TextureXR.slices, colorFormat: GraphicsFormat.R16G16B16A16_SFloat, dimension: TextureXR.dimension, useDynamicScale: true, name: "CameraHDRColor", enableRandomWrite: false);
             m_DepthBuffer = RTHandles.Alloc(Vector2.one, TextureXR.slices, DepthBits.Depth32, dimension: TextureXR.dimension, useDynamicScale: true, name: "CameraDepthStencil");
+            m_ColorBufferRTID = m_ColorBuffer.nameID;
             m_DepthBufferRTID = m_DepthBuffer.nameID;
         }
 
@@ -126,13 +135,19 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
                 RTHandles.Release(m_GBuffers[i]);
                 m_GBuffers[i] = null;
             }
-            RTHandles.Release(m_DepthBuffer);
-            m_DepthBuffer = null;
+        }
 
+        void DestroySharedBuffers()
+        {
+            RTHandles.Release(m_ColorBuffer);
+            RTHandles.Release(m_DepthBuffer);
+            m_ColorBuffer = null;
+            m_DepthBuffer = null;
         }
         protected override void Dispose(bool disposing)
         {
             DestroyGBuffers();
+            DestroySharedBuffers();
         }
 
     }
