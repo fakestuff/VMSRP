@@ -106,7 +106,8 @@
             #pragma vertex Vert
             #pragma fragment Frag
             #include "Packages/com.render-pipelines.custom/ShaderLibrary/Core.hlsl"
-            #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Packing.hlsl"
+            #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/UnityInstancing.hlsl"
+            #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/SpaceTransforms.hlsl"
             //#include "LWRP/ShaderLibrary/InputSurfacePBR.hlsl"
             //#include "LWRP/ShaderLibrary/LightweightPassLit.hlsl"
             
@@ -126,21 +127,58 @@
             struct Attributes
             {
                 float4 positionOS   : POSITION;
-                float2 uv           : TEXCOORD0;
+                float3 normalOS     : NORMAL;
+                float4 tangentOS    : TANGENT;
+                float2 texcoord     : TEXCOORD0;
+                float2 lightmapUV   : TEXCOORD1;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
             
             struct Varyings
             {
-                float2 uv         : TEXCOORD0;
-                float4 positionCS : SV_POSITION;
+                float2 uv                       : TEXCOORD0;
+                //DECLARE_LIGHTMAP_OR_SH(lightmapUV, vertexSH, 1);
+                float4 normalWS                 : TEXCOORD3;    // xyz: normal, w: viewDir.x
+                float4 tangentWS                : TEXCOORD4;    // xyz: tangent, w: viewDir.y
+                float4 bitangentWS              : TEXCOORD5;    // xyz: bitangent, w: viewDir.z
+#ifdef _MAIN_LIGHT_SHADOWS
+                float4 shadowCoord              : TEXCOORD7;
+#endif
+                float4 positionCS               : SV_POSITION;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
             
-            Varyings Vert (Attributes IN)
+            
+            
+            Varyings Vert (Attributes input)
             {
-                Varyings OUT;
-                OUT.positionCS = TransformObjectToHClip(IN.positionOS.xyz);
-                OUT.uv = TRANSFORM_TEX(IN.uv, _BaseMap);
-                return OUT;
+                Varyings output = (Varyings)0;
+                
+                UNITY_SETUP_INSTANCE_ID(input);
+                UNITY_TRANSFER_INSTANCE_ID(input, output);
+                
+                
+                VertexPositionInputs vertexInput = GetVertexPositionInputs(input.positionOS.xyz);
+                VertexNormalInputs normalInput = GetVertexNormalInputs(input.normalOS, input.tangentOS);
+                half3 viewDirWS = GetCameraPositionWS() - vertexInput.positionWS;
+    
+    
+                
+                output.uv = TRANSFORM_TEX(input.texcoord, _BaseMap);
+                
+                output.normalWS = half4(normalInput.normalWS, viewDirWS.x);
+                output.tangentWS = half4(normalInput.tangentWS, viewDirWS.y);
+                output.bitangentWS = half4(normalInput.bitangentWS, viewDirWS.z);
+                
+                //OUTPUT_LIGHTMAP_UV(input.lightmapUV, unity_LightmapST, output.lightmapUV);
+                //OUTPUT_SH(output.normalWS.xyz, output.vertexSH);
+                
+#if defined(_MAIN_LIGHT_SHADOWS) && !defined(_RECEIVE_SHADOWS_OFF)
+                output.shadowCoord = GetShadowCoord(vertexInput);
+#endif
+                output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
+                
+                return output;
             }
 
             void Frag(Varyings IN,

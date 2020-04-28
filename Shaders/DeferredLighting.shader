@@ -25,9 +25,11 @@
             TEXTURE2D(_GBufferAlbedo);
             TEXTURE2D(_GBufferNormal);
             TEXTURE2D(_GBufferMetallicOcclusionSmoothness); //R Metallic,G Occlusion, B None, A Smoothness
+            TEXTURE2D(_CameraDepth);
             SAMPLER(sampler_GBufferAlbedo);
             SAMPLER(sampler_GBufferNormal);
             SAMPLER(sampler_GBufferMetallicOcclusionSmoothness);
+            SAMPLER(sampler_CameraDepth);
             
             CBUFFER_START(UnityPerMaterial)
             float4 _GBufferAlbedo_ST;
@@ -61,7 +63,7 @@
                 half3 radiance = mainLight.color * (mainLight.attenuation * NdotL);
                 half reflectance = BDRF(roughness, normalWS, mainLight.direction, viewDirection);
                 half3 color = (albedo + specular * reflectance) * radiance;*/
-                return half4(pos);
+                return half4(-pos);
             }
             
             ENDHLSL
