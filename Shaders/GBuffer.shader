@@ -187,7 +187,14 @@
                 out half4 GBuffer2 : SV_Target2)
             //half4 Frag (Varyings IN) : SV_Target
             {
+                UNITY_SETUP_INSTANCE_ID(input);
+                
+                SurfaceData surfaceData;
+                InitializeStandardLitSurfaceData(input.uv, surfaceData);
             
+                InputData inputData;
+                InitializeInputData(input, surfaceData.normalTS, inputData);
+                
                 GBuffer0 = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, IN.uv) * _BaseColor;
                 
                 // Translate normal into world space
