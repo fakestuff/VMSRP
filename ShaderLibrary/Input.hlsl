@@ -1,5 +1,5 @@
-﻿#ifndef INPUT_HLSL
-#define INPUT_HLSL
+﻿#ifndef CUSTOM_INPUT_HLSL
+#define CUSTOM_INPUT_HLSL
 
 // TODO: Handle Light type
 // LightData
@@ -9,7 +9,25 @@
 #define MAX_VISIBLE_LIGHTS_UBO  32
 
 //#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/ShaderTypes.cs.hlsl"
+// Generated from UnityEngine.Rendering.Universal.ShaderInput+LightData
+// PackingRules = Exact
+// switch this to auto generated later
+struct LightData
+{
+    float4 position;
+    float4 color;
+    float4 attenuation;
+    float4 spotDirection;
+    float4 occlusionProbeChannels;
+};
 
+// Generated from UnityEngine.Rendering.Universal.ShaderInput+ShadowData
+// PackingRules = Exact
+struct ShadowData
+{
+    float4x4 worldToShadowMatrix;
+    float4 shadowParams;
+};
 // There are some performance issues by using SSBO in mobile.
 // Also some GPUs don't supports SSBO in vertex shader.
 #if !defined(SHADER_API_MOBILE) && (defined(SHADER_API_METAL) || defined(SHADER_API_VULKAN) || defined(SHADER_API_PS4) || defined(SHADER_API_XBOXONE))

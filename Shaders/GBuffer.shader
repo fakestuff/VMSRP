@@ -105,9 +105,11 @@
         
             #pragma vertex Vert
             #pragma fragment Frag
-            #include "Packages/com.render-pipelines.custom/ShaderLibrary/Core.hlsl"
-            #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/UnityInstancing.hlsl"
-            #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/SpaceTransforms.hlsl"
+            
+            #include "Packages/com.render-pipelines.custom/Shaders/GBufferInput.hlsl"
+            #include "Packages/com.render-pipelines.custom/Shaders/GBuffer.hlsl"
+            //#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/UnityInstancing.hlsl"
+            //#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/SpaceTransforms.hlsl"
             //#include "LWRP/ShaderLibrary/InputSurfacePBR.hlsl"
             //#include "LWRP/ShaderLibrary/LightweightPassLit.hlsl"
             
