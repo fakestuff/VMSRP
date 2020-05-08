@@ -1,5 +1,5 @@
-#ifndef CORE_HLSL
-#define CORE_HLSL
+#ifndef CUSTOM_CORE_HLSL
+#define CUSTOM_CORE_HLSL
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Packing.hlsl"
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Version.hlsl"

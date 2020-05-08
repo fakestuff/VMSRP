@@ -1,8 +1,8 @@
-﻿#ifndef GBUFFER_INPUT_HLSL
-#define GBUFFER_INPUT_HLSL
-#include "Packages/com.unity.render-pipelines.cutstom/ShaderLibrary/Core.hlsl"
+﻿#ifndef CUSTOM_GBUFFER_INPUT_HLSL
+#define CUSTOM_GBUFFER_INPUT_HLSL
+#include "Packages/com.render-pipelines.custom/ShaderLibrary/Core.hlsl"
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/CommonMaterial.hlsl"
-#include "Packages/com.unity.render-pipelines.cutstom/ShaderLibrary/SurfaceInput.hlsl"
+#include "Packages/com.render-pipelines.custom/ShaderLibrary/SurfaceInput.hlsl"
 
 CBUFFER_START(UnityPerMaterial)
 float4 _BaseMap_ST;
@@ -25,7 +25,7 @@ half4 SampleMetallicSpecGloss(float2 uv, half albedoAlpha)
 {
     half4 specGloss;
     specGloss = SAMPLE_METALLICSPECULAR(uv);
-    specGloss.a *= _Smoothness;
+    specGloss.a;// *= _Smoothness;
     return specGloss;
 }
 
@@ -43,6 +43,7 @@ half SampleOcclusion(float2 uv)
     return 1.0;
 #endif
 }
+
 
 inline void InitializeStandardLitSurfaceData(float2 uv, out SurfaceData outSurfaceData)
 {

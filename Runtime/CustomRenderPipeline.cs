@@ -3,8 +3,46 @@ using UnityEngine.Experimental.Rendering;
 
 namespace UnityEngine.Rendering.CustomRenderPipeline
 {
+    
     public sealed class CustomRenderPipeline : RenderPipeline
     {
+        static Mesh s_FullscreenMesh = null;
+
+        /// <summary>
+        /// Returns a mesh that you can use with <see cref="CommandBuffer.DrawMesh(Mesh, Matrix4x4, Material)"/> to render full-screen effects.
+        /// </summary>
+        public static Mesh fullscreenMesh
+        {
+            get
+            {
+                if (s_FullscreenMesh != null)
+                    return s_FullscreenMesh;
+
+                float topV = 1.0f;
+                float bottomV = 0.0f;
+
+                s_FullscreenMesh = new Mesh { name = "Fullscreen Quad" };
+                s_FullscreenMesh.SetVertices(new List<Vector3>
+                {
+                    new Vector3(-1.0f, -1.0f, 0.0f),
+                    new Vector3(-1.0f,  1.0f, 0.0f),
+                    new Vector3(1.0f, -1.0f, 0.0f),
+                    new Vector3(1.0f,  1.0f, 0.0f)
+                });
+
+                s_FullscreenMesh.SetUVs(0, new List<Vector2>
+                {
+                    new Vector2(0.0f, bottomV),
+                    new Vector2(0.0f, topV),
+                    new Vector2(1.0f, bottomV),
+                    new Vector2(1.0f, topV)
+                });
+
+                s_FullscreenMesh.SetIndices(new[] { 0, 1, 2, 2, 1, 3 }, MeshTopology.Triangles, 0, false);
+                s_FullscreenMesh.UploadMeshData(true);
+                return s_FullscreenMesh;
+            }
+        }
         private RTHandle[] m_GBuffers;
         private RenderTargetIdentifier[] m_GBufferRTIDs;
         private RTHandle m_ColorBuffer;
@@ -83,6 +121,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             var cmd = CommandBufferPool.Get();
             cmd.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
             cmd.ClearRenderTarget(true, true, camera.backgroundColor);
+            
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
             context.DrawRenderers(cullingResults, ref opaqueDrawingSettings, ref opaqueFilteringSettings);
@@ -126,10 +165,14 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             cmd.SetGlobalTexture("_GBufferAlbedo", m_GBufferRTIDs[0]);
             cmd.SetGlobalTexture("_GBufferNormal", m_GBufferRTIDs[1]);
             cmd.SetGlobalTexture("_GBufferMetallicOcclusionSmoothness", m_GBufferRTIDs[2]);
+            cmd.SetGlobalTexture("_GBufferDepth", m_DepthBufferRTID);
             //Set RenderTarget
             cmd.SetRenderTarget(m_ColorBuffer,RenderBufferLoadAction.DontCare,RenderBufferStoreAction.Store);
-
-            cmd.DrawProcedural(Matrix4x4.identity, m_DeferredLightingMat, 0, MeshTopology.Triangles,3,1,m_LightPropertiesBlock);
+            cmd.ClearRenderTarget(true,true,Color.black,0.0f);
+            cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
+            cmd.SetViewport(camera.pixelRect);
+            cmd.DrawMesh(CustomRenderPipeline.fullscreenMesh, Matrix4x4.identity, m_DeferredLightingMat, 0, 0);
+            //cmd.SetViewport(new Rect(0,0,camera.scaledPixelWidth, camera.scaledPixelHeight));
             
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);

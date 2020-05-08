@@ -4,9 +4,18 @@
     {
         [MainTexture] _BaseMap ("Texture", 2D) = "white" {}
         [MainColor] _BaseColor ("Color", Color) = (1.0, 1.0, 1.0, 1.0)
-        _MetallicGlossMap("MetallicOcSmoothness", 2D) = "black" {}
         _BumpScale("Scale", Float) = 1.0
         _BumpMap("Normal Map", 2D) = "bump" {}
+        _MetallicGlossMap("MetallicOcSmoothness", 2D) = "white" {}
+        [Gamma] _Metallic("Metallic", Range(0.0, 1.0)) = 0.0
+        _Glossiness("Smoothness", Range(0.0, 1.0)) = 0.5
+        _GlossMapScale("Smoothness Scale", Range(0.0, 1.0)) = 1.0
+        
+        _OcclusionStrength("Strength", Range(0.0, 1.0)) = 1.0
+        _OcclusionMap("Occlusion", 2D) = "white" {}
+
+        _EmissionColor("Color", Color) = (0,0,0)
+        _EmissionMap("Emission", 2D) = "white" {}
         
 //        // Specular vs Metallic workflow
 //        [HideInInspector] _WorkflowMode("WorkflowMode", Float) = 1.0
@@ -16,8 +25,7 @@
 //
 //        _Cutoff("Alpha Cutoff", Range(0.0, 1.0)) = 0.5
 //
-//        _Glossiness("Smoothness", Range(0.0, 1.0)) = 0.5
-//        _GlossMapScale("Smoothness Scale", Range(0.0, 1.0)) = 1.0
+
 //        _SmoothnessTextureChannel("Smoothness texture channel", Float) = 0
 //
 //        [Gamma] _Metallic("Metallic", Range(0.0, 1.0)) = 0.0
@@ -35,11 +43,7 @@
 //        _Parallax("Height Scale", Range(0.005, 0.08)) = 0.02
 //        _ParallaxMap("Height Map", 2D) = "black" {}
 //
-//        _OcclusionStrength("Strength", Range(0.0, 1.0)) = 1.0
-//        _OcclusionMap("Occlusion", 2D) = "white" {}
-//
-//        _EmissionColor("Color", Color) = (0,0,0)
-//        _EmissionMap("Emission", 2D) = "white" {}
+
         
         // GBuffer
         /*[HideInInspector] _StencilRefGBuffer("_StencilRefGBuffer", Int) = 2 // StencilLightingUsage.RegularLighting
@@ -87,8 +91,8 @@
             #pragma shader_feature _EMISSION
             #pragma shader_feature _METALLICSPECGLOSSMAP
             #pragma shader_feature _SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A
-            #pragma shader_feature _OCCLUSIONMAP
-
+            //#pragma shader_feature _OCCLUSIONMAP
+            
             #pragma shader_feature _SPECULARHIGHLIGHTS_OFF
             #pragma shader_feature _GLOSSYREFLECTIONS_OFF
             #pragma shader_feature _SPECULAR_SETUP
@@ -98,7 +102,10 @@
             // Unity defined keywords
             #pragma multi_compile _ DIRLIGHTMAP_COMBINED
             #pragma multi_compile _ LIGHTMAP_ON*/
-
+            #define _NORMALMAP
+            #define BUMP_SCALE_NOT_SUPPORTED 1
+            #define _OCCLUSIONMAP
+            #define _METALLICSPECGLOSSMAP
             //--------------------------------------
             // GPU Instancing
             //#pragma multi_compile_instancing
@@ -112,19 +119,7 @@
             //#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/SpaceTransforms.hlsl"
             //#include "LWRP/ShaderLibrary/InputSurfacePBR.hlsl"
             //#include "LWRP/ShaderLibrary/LightweightPassLit.hlsl"
-            
-            TEXTURE2D(_BaseMap);
-            SAMPLER(sampler_BaseMap);
-            TEXTURE2D(_BumpMap);
-            SAMPLER(sampler_BumpMap);
-            TEXTURE2D(_MetallicGlossMap);
-            SAMPLER(sampler_MetallicGlossMap);
 
-            CBUFFER_START(UnityPerMaterial)
-            float4 _BaseMap_ST;
-            half4 _BaseColor;
-            half _BumpScale;
-            CBUFFER_END
             
             struct Attributes
             {
@@ -149,6 +144,30 @@
                 float4 positionCS               : SV_POSITION;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
+            
+            void InitializeInputData(Varyings input, half3 normalTS, out InputData inputData)
+            {
+                inputData = (InputData)0;
+            
+            #ifdef _ADDITIONAL_LIGHTS
+                inputData.positionWS = input.positionWS;
+            #endif
+            
+            
+                half3 viewDirWS = half3(input.normalWS.w, input.tangentWS.w, input.bitangentWS.w);
+                inputData.normalWS = TransformTangentToWorld(normalTS,
+                    half3x3(input.tangentWS.xyz, input.bitangentWS.xyz, input.normalWS.xyz));
+            
+                inputData.viewDirectionWS = viewDirWS;
+            #if defined(_MAIN_LIGHT_SHADOWS) && !defined(_RECEIVE_SHADOWS_OFF)
+                inputData.shadowCoord = input.shadowCoord;
+            #else
+                inputData.shadowCoord = float4(0, 0, 0, 0);
+            #endif
+                //inputData.fogCoord = input.fogFactorAndVertexLight.x;
+                //inputData.vertexLighting = input.fogFactorAndVertexLight.yzw;
+                //inputData.bakedGI = SAMPLE_GI(input.lightmapUV, input.vertexSH, inputData.normalWS);
+            }
             
             
             
@@ -192,16 +211,16 @@
                 UNITY_SETUP_INSTANCE_ID(input);
                 
                 SurfaceData surfaceData;
-                InitializeStandardLitSurfaceData(input.uv, surfaceData);
+                InitializeStandardLitSurfaceData(IN.uv, surfaceData);
             
                 InputData inputData;
-                InitializeInputData(input, surfaceData.normalTS, inputData);
+                InitializeInputData(IN, surfaceData.normalTS, inputData);
                 
-                GBuffer0 = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, IN.uv) * _BaseColor;
+                GBuffer0 = half4(surfaceData.albedo, surfaceData.alpha) * _BaseColor;
                 
                 // Translate normal into world space
-                GBuffer1 = half4(UnpackNormalScale(SAMPLE_TEXTURE2D(_BumpMap, sampler_BumpMap, IN.uv), _BumpScale),1.0);
-                GBuffer2 = SAMPLE_TEXTURE2D(_MetallicGlossMap, sampler_MetallicGlossMap, IN.uv);
+                GBuffer1 = half4(inputData.normalWS* 0.5h + 0.5h,1.0h);
+                GBuffer2 = half4(surfaceData.metallic, surfaceData.occlusion, 0, surfaceData.smoothness);
             }
             //{
                 //SurfaceData surfaceData;
