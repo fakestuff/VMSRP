@@ -216,10 +216,11 @@
                 InputData inputData;
                 InitializeInputData(IN, surfaceData.normalTS, inputData);
                 
-                GBuffer0 = half4(surfaceData.albedo, surfaceData.alpha) * _BaseColor;
+                GBuffer0 = half4(surfaceData.albedo, surfaceData.alpha);
                 
                 // Translate normal into world space
-                GBuffer1 = half4(inputData.normalWS* 0.5h + 0.5h,1.0h);
+                //GBuffer1 = half4(inputData.normalWS* 0.5h + 0.5h,1.0h);
+                GBuffer1 = half4(inputData.normalWS,1.0h);
                 GBuffer2 = half4(surfaceData.metallic, surfaceData.occlusion, 0, surfaceData.smoothness);
             }
             //{

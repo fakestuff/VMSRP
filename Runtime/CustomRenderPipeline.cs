@@ -54,12 +54,15 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
 
         private Shader m_DeferredLitShader;
         private Material m_DeferredLightingMat;
+
+        private LightCullingPass m_LightCullingPass;
         MaterialPropertyBlock m_LightPropertiesBlock = new MaterialPropertyBlock();
         public CustomRenderPipeline(CustomRenderPipelineAsset asset)
         {
             RTHandles.Initialize(1, 1, false, MSAASamples.None);
             CreateSharedBuffer();
             CreateGBuffers();
+            m_LightCullingPass = new LightCullingPass();
             m_DeferredLightingMat = CoreUtils.CreateEngineMaterial(Shader.Find("CustomSRP/DeferredLighting"));
         }
 
@@ -72,7 +75,8 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
                 maxWidth = Mathf.Max(maxWidth, camera.pixelWidth);
                 maxHeight = Mathf.Max(maxHeight, camera.pixelHeight);
             }
-            RTHandles.SetReferenceSize(maxWidth,maxHeight,m_MSAASample);
+            //RTHandles.SetReferenceSize(maxWidth,maxHeight,m_MSAASample);
+            RTHandles.SetReferenceSize(1920,1080,m_MSAASample);
             ShaderBindings.SetPerFrameShaderVariables(context);
             foreach (Camera camera in cameras)
             {
@@ -147,8 +151,9 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             
 
             
-
-            DeferredLightPass(context, camera);
+            m_LightCullingPass.Execute(context,cullingResults,camera);
+            DeferredLightPass(context, cullingResults, camera);
+            //context.DrawSkybox(camera);
             cmd = CommandBufferPool.Get("FinalBlit");
             cmd.Blit(m_ColorBufferRTID, BuiltinRenderTextureType.CameraTarget);
             context.ExecuteCommandBuffer(cmd);
@@ -158,9 +163,21 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             context.Submit();
         }
 
-        void DeferredLightPass(ScriptableRenderContext context, Camera camera)
+        void DeferredLightPass(ScriptableRenderContext context, CullingResults cullingResults, Camera camera)
         {
             var cmd = CommandBufferPool.Get("DeferredLightPass");
+
+            if (cullingResults.visibleLights.Length > 0)
+            {
+                VisibleLight lightData = cullingResults.visibleLights[0];
+                Vector4 dir = -lightData.localToWorldMatrix.GetColumn(2);
+                Vector4 lightPos = new Vector4(dir.x, dir.y, dir.z, 0.0f);
+                cmd.SetGlobalVector("_MainLightPosition", lightPos);
+                cmd.SetGlobalVector("_MainLightColor", lightData.finalColor);
+            }
+            if ( cullingResults.visibleReflectionProbes.Length>0)
+                cmd.SetGlobalTexture("unity_SpecCube0", cullingResults.visibleReflectionProbes[0].texture);
+            cmd.SetGlobalVector("unity_SpecCube0_HDR", new Vector4(1,1,0,0));
             // Bind buffers
             cmd.SetGlobalTexture("_GBufferAlbedo", m_GBufferRTIDs[0]);
             cmd.SetGlobalTexture("_GBufferNormal", m_GBufferRTIDs[1]);
@@ -169,8 +186,8 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             //Set RenderTarget
             cmd.SetRenderTarget(m_ColorBuffer,RenderBufferLoadAction.DontCare,RenderBufferStoreAction.Store);
             cmd.ClearRenderTarget(true,true,Color.black,0.0f);
-            cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
-            cmd.SetViewport(camera.pixelRect);
+            //cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
+            //cmd.SetViewport(camera.pixelRect);
             cmd.DrawMesh(CustomRenderPipeline.fullscreenMesh, Matrix4x4.identity, m_DeferredLightingMat, 0, 0);
             //cmd.SetViewport(new Rect(0,0,camera.scaledPixelWidth, camera.scaledPixelHeight));
             
@@ -181,9 +198,9 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         {
             m_GBuffers = new RTHandle[m_GBufferCount];
             m_GBufferRTIDs = new RenderTargetIdentifier[m_GBufferCount];
-            m_GBuffers[0] = RTHandles.Alloc(Vector2.one,  colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension:TextureDimension.Tex2D, useDynamicScale: true, name: "Albedo", enableRandomWrite: false);
-            m_GBuffers[1] = RTHandles.Alloc(Vector2.one,  colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureDimension.Tex2D, useDynamicScale: true, name: "Normal", enableRandomWrite: false);
-            m_GBuffers[2] = RTHandles.Alloc(Vector2.one,  colorFormat: GraphicsFormat.R8G8B8A8_UNorm, dimension: TextureDimension.Tex2D, useDynamicScale: true, name: "MSO", enableRandomWrite: false);
+            m_GBuffers[0] = RTHandles.Alloc(Vector2.one,  colorFormat: GraphicsFormat.R16G16B16A16_SFloat, dimension:TextureDimension.Tex2D, useDynamicScale: true, name: "Albedo", enableRandomWrite: false);
+            m_GBuffers[1] = RTHandles.Alloc(Vector2.one,  colorFormat: GraphicsFormat.R16G16B16A16_SFloat, dimension: TextureDimension.Tex2D, useDynamicScale: true, name: "Normal", enableRandomWrite: false);
+            m_GBuffers[2] = RTHandles.Alloc(Vector2.one,  colorFormat: GraphicsFormat.R16G16B16A16_SFloat, dimension: TextureDimension.Tex2D, useDynamicScale: true, name: "MSO", enableRandomWrite: false);
 
             for (var i = 0;i<m_GBufferCount;i++)
                 m_GBufferRTIDs[i] = m_GBuffers[i].nameID;
@@ -215,6 +232,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         }
         protected override void Dispose(bool disposing)
         {
+            m_LightCullingPass.Dispose();
             DestroyGBuffers();
             DestroySharedBuffers();
         }

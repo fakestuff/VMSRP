@@ -24,7 +24,7 @@
             #include "Packages/com.render-pipelines.custom/ShaderLibrary/Core.hlsl"
             #include "Packages/com.render-pipelines.custom/ShaderLibrary/SurfaceInput.hlsl"
             #include "Packages/com.render-pipelines.custom/ShaderLibrary/Lighting.hlsl"
-            
+            #define UNITY_USE_NATIVE_HDR 1
             
             TEXTURE2D(_GBufferAlbedo);
             TEXTURE2D(_GBufferNormal);
@@ -38,6 +38,7 @@
             CBUFFER_START(UnityPerMaterial)
             float4 _GBufferAlbedo_ST;
             CBUFFER_END
+            float4x4 unity_MatrixInvVP;
             struct Attributes
             {
                 float4 positionOS   : POSITION;
@@ -91,11 +92,12 @@
             {
                 inputData = (InputData)0;
                 float depth = SAMPLE_TEXTURE2D(_GBufferDepth, sampler_GBufferDepth, uv).r;
-                float2 positionNDC = uv.xy * _ScreenSize.zw;
-                float3 positionWS = ComputeWorldSpacePosition(positionNDC, depth, UNITY_MATRIX_I_VP);
-                inputData.positionWS = positionWS;
-                
-                inputData.normalWS = NormalizeNormalPerPixel(inputData.normalWS);
+                float2 positionNDC = uv.xy;// / _ScreenSize.zw; // BUG!!!!!
+                float3 positionWS = ComputeWorldSpacePosition(positionNDC, depth, unity_MatrixInvVP);
+                inputData.positionWS = float3(positionWS);
+                //inputData.positionWS = positionWS;
+                inputData.normalWS = SafeNormalize(SAMPLE_TEXTURE2D(_GBufferNormal, sampler_GBufferNormal, uv));
+                //inputData.normalWS = NormalizeNormalPerPixel(SAMPLE_TEXTURE2D(_GBufferNormal, sampler_GBufferNormal, uv));
                 float3 viewDirWS = SafeNormalize((GetCameraPositionWS() - positionWS));
             
                 inputData.viewDirectionWS = viewDirWS;
@@ -123,9 +125,14 @@
                 
                 SurfaceData surfaceData;
                 InitializeDeferredLitSurfaceData(IN.uv, surfaceData);
-                
+               
                 InputData inputData;
                 InitializeDeferredInputData(IN, IN.uv, inputData);
+                
+                //float depth = SAMPLE_TEXTURE2D(_GBufferDepth, sampler_GBufferDepth, IN.uv).r;
+                //return half4(ComputeWorldSpacePosition(IN.uv, depth, unity_MatrixInvVP),0);
+                //return half4(IN.uv,0,1);
+                //return half4(inputData.viewDirectionWS,1.0);
                 half4 color = UniversalFragmentPBR(inputData, surfaceData.albedo, surfaceData.metallic, surfaceData.specular, surfaceData.smoothness, surfaceData.occlusion, surfaceData.emission, surfaceData.alpha);
                 return color;
             }

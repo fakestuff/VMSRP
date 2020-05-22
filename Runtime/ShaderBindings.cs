@@ -28,6 +28,7 @@
         public static int worldSpaceCameraPos = Shader.PropertyToID("_WorldSpaceCameraPos");
         public static int projectionParams = Shader.PropertyToID("_ProjectionParams");
         public static int screenParams = Shader.PropertyToID("_ScreenParams");
+        public static int screenSize = Shader.PropertyToID("_ScreenSize");
         public static int zBufferParams = Shader.PropertyToID("_ZBufferParams");
         public static int orthoParams = Shader.PropertyToID("unity_OrthoParams");
         public static int cameraProjection = Shader.PropertyToID("unity_CameraProjection");
@@ -78,14 +79,14 @@
             float cameraWidth = (float)pixelRect.width;
             float cameraHeight = (float)pixelRect.height;
 
-            Matrix4x4 projMatrix = GL.GetGPUProjectionMatrix(camera.projectionMatrix, false);
+            Matrix4x4 projMatrix = GL.GetGPUProjectionMatrix(camera.projectionMatrix, true);
             Matrix4x4 viewMatrix = camera.worldToCameraMatrix;
             Matrix4x4 viewProjMatrix = projMatrix * viewMatrix;
 
             Matrix4x4 invViewMatrix = Matrix4x4.Inverse(viewMatrix);
             Matrix4x4 invProjectionMatrix = Matrix4x4.Inverse(projMatrix);
             Matrix4x4 invViewProjMatrix = Matrix4x4.Inverse(viewProjMatrix);
-
+            
             float projectionFlip = SystemInfo.graphicsUVStartsAtTop ? -1.0f : 1.0f;
 
             float near = camera.nearClipPlane;
@@ -121,6 +122,7 @@
             cmd.SetGlobalVector(ShaderBindings.worldSpaceCameraPos, camera.transform.position);
             cmd.SetGlobalVector(ShaderBindings.projectionParams, projectionParams);
             cmd.SetGlobalVector(ShaderBindings.screenParams, new Vector4(cameraWidth, cameraHeight, 1.0f + 1.0f / cameraWidth, 1.0f + 1.0f / cameraHeight));
+            cmd.SetGlobalVector(ShaderBindings.screenSize, new Vector4(cameraWidth, cameraHeight, 1.0f / cameraWidth, 1.0f / cameraHeight));
             cmd.SetGlobalVector(ShaderBindings.zBufferParams, zBufferParams);
             cmd.SetGlobalVector(ShaderBindings.orthoParams, orthoParams);
             // TODO: missing unity_CameraWorldClipPlanes[6], currently set by context.SetupCameraProperties
