@@ -22,51 +22,29 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
     public class LightViewSpaceDistanceComparer : IComparer<VisibleLight>
     {
         public Camera ViewCamera { get; set; }
+        public Vector3 CameraForward { get; set; }
         // Call CaseInsensitiveComparer.Compare with the parameters reversed.
         public int Compare(VisibleLight x, VisibleLight y)
         {
             //try to switch to 
-            Vector3 xDepthMin = ViewCamera.WorldToScreenPoint(x.light.transform.position - ViewCamera.transform.forward*x.light.range);
-            Vector3 yDepthMin = ViewCamera.WorldToScreenPoint(y.light.transform.position - ViewCamera.transform.forward*y.light.range);
-            return xDepthMin.z == yDepthMin.z? 0:xDepthMin.z<yDepthMin.z? -1:1; // screen space depth
+            Vector3 xDepthMin = ViewCamera.WorldToScreenPoint(x.light.transform.position - CameraForward*x.light.range);
+            Vector3 yDepthMin = ViewCamera.WorldToScreenPoint(y.light.transform.position - CameraForward*y.light.range);
+            return xDepthMin.z<yDepthMin.z? -1:1; // screen space depth
         }
     }
 
-    public struct LightCullingJob : IJobParallelFor
-    {
-        public void Execute(int index)
-        {
-            //TODO: Do Actual culling
-        }
-    }
     
-    public struct LightCullingBroadPhaseJob : IJobParallelFor
-    {
-        public void Execute(int bigTileIndex)
-        {
-            //TODO: Do Actual culling
-        }
-    }
-    
-    public struct LightCullingZBinningJob : IJobParallelFor
-    {
-        public void Execute(int zBinningIndex)
-        {
-            
-        }
-    
-    }
     public struct LightIndex
     { 
         uint4 IndexBitArry; // support up to 32 light per tile
         //high end
         //1000000000...00000 -> 1
         //0100000000...00000 -> 2
-        void Reset()
+        public void Reset()
         {
             IndexBitArry = 0;
         }
-        void SetIndex(int id)
+        public LightIndex SetIndex(int id)
         {
             if (id < 32)
             {
@@ -84,11 +62,13 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             {
                 IndexBitArry.w |= 1u << (id - 96);
             }
-            
-            
+
+            return this;
+
+
         }
 
-        void ResetIndex(int id)
+        public LightIndex ResetIndex(int id)
         {
             if (id < 32)
             {
@@ -106,6 +86,8 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             {
                 IndexBitArry.w |= 1u << (id - 96);
             }
+
+            return this;
         }
 
         bool GetIndex(int id)
@@ -130,45 +112,13 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         
         
     }
-    public struct LightCullingNarrowPhaseJob : IJobParallelFor
-    {
-        [ReadOnly]
-        public NativeArray<VisibleLight> m_LightList;
-
-        public NativeArray<float4> m_lightIndices;
-        public int3 tileCount;
-        public ClusterInfo m_ClusterInfo;
-        public void Execute(int index) //row major
-        {
-            int3 tileIndex;
-            LightIndex lightIndex;
-            tileIndex.x = index / tileCount.x;
-            tileIndex.y = index % tileCount.y;
-            for (int i = 0; i < m_LightList.Length; i++)
-            {
-                //planeLeft
-                dot(m_LightList[i].light.transform.position - m_ClusterInfo.
-                //planeRight
-                //PlaneTop
-                //PlaneBot
-                //PlaneBack
-                //PlaneForward
-            }
-            
-            
-        }
-    }
-
-    
-
-    
     
     public struct ClusterInfo
     {
         
-        NativeArray<float3> m_ClusterNormal;//native container or not
-        NativeArray<NativeArray<float3>> m_ClusterPoints;
-        float3[,,] m_FrustumBoundingPoints; // this should not be used directly
+        public NativeArray<float3> ClusterNormal;//native container or not
+        public NativeArray<NativeArray<float3>> ClusterPoints;
+        public float3[,,] FrustumBoundingPoints; // this should not be used directly
 
         public void Update(int3 tileCount, Camera camera)
         {
@@ -178,19 +128,19 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
 
         void NewOrReallocate(int3 tileCount)
         {
-            if (m_FrustumBoundingPoints == null)
+            if (FrustumBoundingPoints == null)
             {
-                m_FrustumBoundingPoints = new float3[2,2,2];
+                FrustumBoundingPoints = new float3[2,2,2];
             }
 
-            m_ClusterNormal = new NativeArray<float3>(3,Allocator.Temp);
-            m_ClusterPoints = new NativeArray<NativeArray<float3>>(3, Allocator.Temp);
-            m_ClusterPoints[0] = new NativeArray<float3>(tileCount.x+1, Allocator.Temp);
-            m_ClusterPoints[0] = new NativeArray<float3>(tileCount.x+1, Allocator.Temp);
-            m_ClusterPoints[0] = new NativeArray<float3>(tileCount.x+1, Allocator.Temp);
+            ClusterNormal = new NativeArray<float3>(3,Allocator.Temp);
+            ClusterPoints = new NativeArray<NativeArray<float3>>(3, Allocator.Temp);
+            ClusterPoints[0] = new NativeArray<float3>(tileCount.x+1, Allocator.Temp);
+            ClusterPoints[0] = new NativeArray<float3>(tileCount.x+1, Allocator.Temp);
+            ClusterPoints[0] = new NativeArray<float3>(tileCount.x+1, Allocator.Temp);
         }
 
-        void FillNormalAndPoints(uint3 tileCount, Camera camera)
+        void FillNormalAndPoints(int3 tileCount, Camera camera)
         {
             // generate 8 3d points and then lerp
             // try lerping with SIMD
@@ -202,7 +152,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
                 {
                     for (int z = 0; z < 2; z++)
                     {
-                        m_FrustumBoundingPoints[x, y, z] =
+                        FrustumBoundingPoints[x, y, z] =
                             camera.ScreenToWorldPoint(new Vector3(x, y, z == 0 ? camera.nearClipPlane : camera.farClipPlane));
                     }
                 }
@@ -215,17 +165,17 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             
             
 
-            float3 clusterFwdStep = (m_FrustumBoundingPoints[0,0,1]-m_FrustumBoundingPoints[0,0,0])/tileCount.z;
-            float3 clusterRightStep = m_FrustumBoundingPoints[1,0,0]/m_FrustumBoundingPoints[0,0,0]/tileCount.x;
-            float3 clusterDownStep = m_FrustumBoundingPoints[0,1,0]/m_FrustumBoundingPoints[0,0,0]/tileCount.y;
+            float3 clusterFwdStep = (FrustumBoundingPoints[0,0,1]-FrustumBoundingPoints[0,0,0])/tileCount.z;
+            float3 clusterRightStep = FrustumBoundingPoints[1,0,0]/FrustumBoundingPoints[0,0,0]/tileCount.x;
+            float3 clusterDownStep = FrustumBoundingPoints[0,1,0]/FrustumBoundingPoints[0,0,0]/tileCount.y;
             
             //  x,  y,  z
             // -x, -y, -z
             float3[] clusterNormal = new float3[3];
             float3[] clusterNegNormal = new float3[3];
-            m_ClusterNormal[0] = normalize(clusterRightStep);
-            m_ClusterNormal[1] = normalize(clusterDownStep);
-            m_ClusterNormal[2] = normalize(clusterFwdStep);
+            ClusterNormal[0] = normalize(clusterRightStep);
+            ClusterNormal[1] = normalize(clusterDownStep);
+            ClusterNormal[2] = normalize(clusterFwdStep);
             // clusterNegNormal[0] = -clusterNormal[0];
             // clusterNegNormal[1] = -clusterNormal[1];
             // clusterNegNormal[2] = -clusterNormal[2];
@@ -233,16 +183,16 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             
             for (int x = 0; x <= tileCount.x; x++)
             {
-                m_ClusterPoints[0].ReinterpretStore(x,m_FrustumBoundingPoints[0, 0, 0] + clusterRightStep * x);
+                ClusterPoints[0].ReinterpretStore(x,FrustumBoundingPoints[0, 0, 0] + clusterRightStep * x);
             }
 
             for (int y = 0; y <= tileCount.y; y++)
             {
-                m_ClusterPoints[1].ReinterpretStore(y,m_FrustumBoundingPoints[0, 0, 0] + clusterDownStep * y);
+                ClusterPoints[1].ReinterpretStore(y,FrustumBoundingPoints[0, 0, 0] + clusterDownStep * y);
             }
             for (int z = 0; z <= tileCount.z; z++)
             {
-                m_ClusterPoints[1].ReinterpretStore(z,m_FrustumBoundingPoints[0, 0, 0] + clusterFwdStep * z);
+                ClusterPoints[1].ReinterpretStore(z,FrustumBoundingPoints[0, 0, 0] + clusterFwdStep * z);
             }
         }
 
@@ -250,12 +200,153 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         {
             for (int i = 0; i < 3; i++)
             {
-                m_ClusterPoints[i].Dispose();
+                ClusterPoints[i].Dispose();
             }
-            m_ClusterPoints.Dispose();
-            m_ClusterNormal.Dispose();
+            ClusterPoints.Dispose();
+            ClusterNormal.Dispose();
         }
     }
+
+    public struct ZBinningInfo
+    {
+        public float3 CameraNormal;
+        public NativeArray<float3> ZBinningPoints;
+
+        public void Update(int binningCount, Camera camera)
+        {
+            NewOrReallocate(binningCount);
+            FillZBinningPoints(binningCount, camera);
+            CameraNormal = camera.transform.forward;
+        }
+
+        void NewOrReallocate(int binningCount)
+        {
+
+            ZBinningPoints = new NativeArray<float3>(binningCount+1,Allocator.Temp);
+        }
+
+        void FillZBinningPoints(int binningCount, Camera camera)
+        {
+            for (int i = 0; i <= binningCount; i++)
+            {
+                camera.ScreenToWorldPoint(new Vector3(camera.scaledPixelWidth*0.5f, camera.scaledPixelHeight*0.5f,  lerp(camera.nearClipPlane, camera.farClipPlane, (float)i/binningCount))); // replace this will avalnch hard coded value
+            }
+        }
+        
+        public void Dispose()
+        {
+            ZBinningPoints.Dispose();
+        }
+    }
+    public struct LightCullingNarrowPhaseJob : IJobParallelFor
+    {
+        [ReadOnly]
+        public NativeArray<VisibleLight> m_LightList;
+
+        public NativeArray<LightIndex> m_lightIndices;
+        public int3 tileCount;
+        public ClusterInfo m_ClusterInfo;
+        // TODO:CTOR
+        bool PlaneCircleCollision(float3 planeNormal, float3 pointOnPlane, float3 circleCenter, float radius)
+        {
+            return dot(circleCenter - pointOnPlane, planeNormal) < radius;
+        }
+        public void Execute(int index) //row major
+        {
+            int3 tileIndex;
+            LightIndex lightIndex = m_lightIndices[index];
+            lightIndex.Reset();
+            tileIndex.x = index / tileCount.x;
+            tileIndex.y = index % tileCount.y;
+            
+            for (int i = 0; i < m_LightList.Length; i++)
+            {
+                float3 lightPosition = m_LightList[i].light.transform.position;
+                var range = m_LightList[i].light.range;
+                var tileIsLit = PlaneCircleCollision(-m_ClusterInfo.ClusterNormal[0],
+                                     m_ClusterInfo.ClusterPoints[0][tileIndex.x], lightPosition, range) // plane left
+                                 && PlaneCircleCollision(m_ClusterInfo.ClusterNormal[0],
+                                     m_ClusterInfo.ClusterPoints[0][tileIndex.x + 1], lightPosition, range) // plane right
+                                 && PlaneCircleCollision(m_ClusterInfo.ClusterNormal[0],
+                                     m_ClusterInfo.ClusterPoints[0][tileIndex.x + 1], lightPosition, range) // plane top
+                                 && PlaneCircleCollision(m_ClusterInfo.ClusterNormal[0],
+                                     m_ClusterInfo.ClusterPoints[0][tileIndex.x + 1], lightPosition, range);
+                if (tileIsLit)
+                {
+                    lightIndex.SetIndex(i);
+                }
+            }
+            m_lightIndices[index] = lightIndex;
+        }
+    }
+    
+    public struct LightCullingJob : IJobParallelFor
+    {
+        public void Execute(int index)
+        {
+            //TODO: Do Actual culling
+        }
+    }
+    
+    public struct LightCullingBroadPhaseJob : IJobParallelFor
+    {
+        public void Execute(int bigTileIndex)
+        {
+            //TODO: Do Actual culling
+        }
+    }
+    
+    public struct LightCullingZBinningJob : IJobParallelFor
+    {
+        
+        [ReadOnly]
+        public NativeArray<VisibleLight> m_LightList;
+
+        public NativeArray<LightIndex> m_lightIndices;
+        public int3 tileCount;
+        public ZBinningInfo m_ZBinningInfo;
+
+        // TODO:CTOR
+
+        bool PlaneCircleCollision(float3 planeNormal, float3 pointOnPlane, float3 circleCenter, float radius)
+        {
+            return dot(circleCenter - pointOnPlane, planeNormal) < radius;
+        }
+        public void Execute(int zBinningIndex) //16 by default
+        {
+            int3 tileIndex;
+            LightIndex lightIndex = m_lightIndices[zBinningIndex];
+            lightIndex.Reset();
+            for (int i = 0; i < m_LightList.Length; i++)
+            {
+                float3 lightPosition = m_LightList[i].light.transform.position;
+                var range = m_LightList[i].light.range;
+                var tileIsLit = PlaneCircleCollision(-m_ZBinningInfo.CameraNormal[0],
+                                    m_ZBinningInfo.ZBinningPoints[0][i], lightPosition, range) // plane left
+                                && PlaneCircleCollision(m_ZBinningInfo.CameraNormal[0],
+                                    m_ZBinningInfo.ZBinningPoints[0][i + 1], lightPosition, range); // plane right
+                
+                if (tileIsLit)
+                {
+                    lightIndex.SetIndex(i);
+                }
+                
+
+                
+            }
+
+            m_lightIndices[zBinningIndex] = lightIndex;
+
+
+        }
+    
+    }
+
+    
+
+    
+    
+    
 
     // x 0 left 1 right
     // y 0 top 1 right
@@ -349,6 +440,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             // }
             //
             m_LightComparer.ViewCamera = camera;
+            m_LightComparer.CameraForward = camera.transform.forward;
             m_SortedLights = new NativeArray<VisibleLight>( cullingResults.visibleLights.Length, Allocator.Temp);
             cullingResults.visibleLights.CopyTo(m_SortedLights);
             m_SortedLights.Sort(m_LightComparer); // wish the sorting works well
