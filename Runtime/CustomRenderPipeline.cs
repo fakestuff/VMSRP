@@ -52,9 +52,13 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         private int m_GBufferCount = 3;
         private MSAASamples m_MSAASample = MSAASamples.None;
 
-        private Shader m_DeferredLitShader;
+        //private Shader m_DeferredLitShader;
         private Material m_DeferredLightingMat;
-
+        private Material m_DebugLightCountMat;
+        private Texture2D m_NumberCharts;
+        private bool m_DebugTileCount;
+        
+        
         private LightCullingPass m_LightCullingPass;
         MaterialPropertyBlock m_LightPropertiesBlock = new MaterialPropertyBlock();
         public CustomRenderPipeline(CustomRenderPipelineAsset asset)
@@ -64,6 +68,9 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             CreateGBuffers();
             m_LightCullingPass = new LightCullingPass();
             m_DeferredLightingMat = CoreUtils.CreateEngineMaterial(Shader.Find("CustomSRP/DeferredLighting"));
+            m_DebugLightCountMat = CoreUtils.CreateEngineMaterial(Shader.Find("Hidden/DebugLightCountShader"));
+            m_NumberCharts = asset.NumberChartTexture;
+            m_DebugTileCount = asset.DebugTileCount;
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
@@ -143,11 +150,12 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             cmd = CommandBufferPool.Get("Gbuffer");
             cmd.SetRenderTarget(m_GBufferRTIDs,m_DepthBufferRTID);
             cmd.ClearRenderTarget(true, true, camera.backgroundColor);
+            
             //CoreUtils.SetRenderTarget(cmd, m_GBufferRTIDs, m_DepthBufferRTID, ClearFlag.All);
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
             context.DrawRenderers(cullingResults, ref opaqueDrawingSettings, ref opaqueFilteringSettings);
-
+            
             
 
             
@@ -158,6 +166,10 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             cmd.Blit(m_ColorBufferRTID, BuiltinRenderTextureType.CameraTarget);
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
+            
+            //
+            if (m_DebugTileCount)
+                DebugPass(context, cullingResults, camera);
             // Submit commands to GPU. Up to this point all commands have been enqueued in the context.
             // Several submits can be done in a frame to better controls CPU/GPU workload.
             context.Submit();
@@ -183,6 +195,9 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             cmd.SetGlobalTexture("_GBufferNormal", m_GBufferRTIDs[1]);
             cmd.SetGlobalTexture("_GBufferMetallicOcclusionSmoothness", m_GBufferRTIDs[2]);
             cmd.SetGlobalTexture("_GBufferDepth", m_DepthBufferRTID);
+            cmd.SetGlobalInt("_TileCountX", (camera.scaledPixelWidth + 64 - 1) / 64);
+            cmd.SetGlobalInt("_TileCountY", (camera.scaledPixelHeight + 64 - 1) / 64);
+            cmd.SetGlobalVector("unity_LightData", new Vector4(6,0,1,0));
             //Set RenderTarget
             cmd.SetRenderTarget(m_ColorBuffer,RenderBufferLoadAction.DontCare,RenderBufferStoreAction.Store);
             cmd.ClearRenderTarget(true,true,Color.black,0.0f);
@@ -194,6 +209,17 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
         }
+
+        void DebugPass(ScriptableRenderContext context, CullingResults cullingResults, Camera camera)
+        {
+            ShaderBindings.SetPerCameraShaderVariables(context, camera, false);
+            var cmd = CommandBufferPool.Get("DebugLightDraw");
+            cmd.SetGlobalTexture("_NumberChart",m_NumberCharts);
+            cmd.DrawMesh(CustomRenderPipeline.fullscreenMesh, Matrix4x4.identity, m_DebugLightCountMat, 0, 0);
+            context.ExecuteCommandBuffer(cmd);
+            CommandBufferPool.Release(cmd);
+        }
+        
         void CreateGBuffers()
         {
             m_GBuffers = new RTHandle[m_GBufferCount];

@@ -13,6 +13,8 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using Unity.Mathematics;
+using uint2 = Unity.Mathematics.uint2;
+
 namespace UnityEngine.Rendering.CustomRenderPipeline
 {
     
@@ -34,7 +36,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
     }
 
     
-    public struct LightIndex
+    public struct TileLightIndex
     { 
         uint4 IndexBitArry; // support up to 32 light per tile
         //high end
@@ -44,81 +46,45 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         {
             IndexBitArry = 0;
         }
-        public LightIndex SetIndex(int id)
+        public TileLightIndex SetIndex(int id)
         {
-            if (id < 32)
-            {
-                IndexBitArry.x |= 1u << id;
-            }
-            else if (id < 64)
-            {
-                IndexBitArry.y |= 1u << (id-32);
-            }
-            else if (id < 96)
-            {
-                IndexBitArry.z |= 1u << (id - 64);
-            }
-            else
-            {
-                IndexBitArry.w |= 1u << (id - 96);
-            }
+            IndexBitArry[id / 32] |= 0x80000000u >> (id%32);
 
             return this;
 
 
-        }
-
-        public LightIndex ResetIndex(int id)
-        {
-            if (id < 32)
-            {
-                IndexBitArry.x |= 1u << id;
-            }
-            else if (id < 64)
-            {
-                IndexBitArry.y |= 1u << (id-32);
-            }
-            else if (id < 96)
-            {
-                IndexBitArry.z |= 1u << (id - 64);
-            }
-            else
-            {
-                IndexBitArry.w |= 1u << (id - 96);
-            }
-
-            return this;
         }
 
         bool GetIndex(int id)
         {
-            if (id < 32)
-            {
-                return (IndexBitArry.x & 1u << id) != 0u;
-            }
-            else if (id < 64)
-            {
-                return (IndexBitArry.y & 1u << (id-32)) != 0u;
-            }
-            else if (id < 96)
-            {
-                return (IndexBitArry.z & 1u << (id - 64)) != 0u;
-            }
-            else
-            {
-                return (IndexBitArry.w |= 1u << (id - 96)) != 0u;
-            }
+            return (IndexBitArry[id/32] & 0x80000000u >> (id%32)) != 0u;
         }
         
         
+    }
+
+    public struct ZBinningLightIndexRange
+    {
+        private int4 m_Index; // waste 2 word to do padding
+
+        public void Reset()
+        {
+            m_Index.x = Int32.MinValue; // in shader check if m_Index.x < 0, if true then it's a 
+            m_Index.y = Int32.MaxValue;
+        }
     }
     
     public struct ClusterInfo
     {
         
-        public NativeArray<float3> ClusterNormal;//native container or not
-        public NativeArray<NativeArray<float3>> ClusterPoints;
-        public float3[,,] FrustumBoundingPoints; // this should not be used directly
+        public NativeArray<float3> ClusterNormal; // native container or not
+        public NativeArray<float3> ClusterXPlaneNormal; // cluster normal in x-right direction
+        public NativeArray<float3> ClusterYPlaneNormal; // cluster normal in y-down direction
+        public NativeArray<float3> ClusterZPlaneNormal; // cluster normal in x direction
+        public NativeArray<float3> ClusterXPlanePoints;
+        public NativeArray<float3> ClusterYPlanePoints;
+        public NativeArray<float3> ClusterZPlanePoints;
+        public NativeArray<float3> FrustumBoundingPoints; // 4*x+2*y+z
 
         public void Update(int3 tileCount, Camera camera)
         {
@@ -128,16 +94,21 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
 
         void NewOrReallocate(int3 tileCount)
         {
-            if (FrustumBoundingPoints == null)
-            {
-                FrustumBoundingPoints = new float3[2,2,2];
-            }
 
-            ClusterNormal = new NativeArray<float3>(3,Allocator.Temp);
-            ClusterPoints = new NativeArray<NativeArray<float3>>(3, Allocator.Temp);
-            ClusterPoints[0] = new NativeArray<float3>(tileCount.x+1, Allocator.Temp);
-            ClusterPoints[0] = new NativeArray<float3>(tileCount.x+1, Allocator.Temp);
-            ClusterPoints[0] = new NativeArray<float3>(tileCount.x+1, Allocator.Temp);
+            ClusterNormal = new NativeArray<float3>(3,Allocator.TempJob);
+            FrustumBoundingPoints = new NativeArray<float3>(8, Allocator.TempJob);
+            ClusterXPlanePoints = new NativeArray<float3>(tileCount.x+1, Allocator.TempJob);
+            ClusterYPlanePoints = new NativeArray<float3>(tileCount.y+1, Allocator.TempJob);
+            ClusterZPlanePoints = new NativeArray<float3>(tileCount.z+1, Allocator.TempJob);
+            
+            ClusterXPlaneNormal = new NativeArray<float3>(tileCount.x+1, Allocator.TempJob);
+            ClusterYPlaneNormal = new NativeArray<float3>(tileCount.y+1, Allocator.TempJob);
+            ClusterZPlaneNormal = new NativeArray<float3>(tileCount.z+1, Allocator.TempJob);
+        }
+
+        int XYZToIndex(int x, int y, int z)
+        {
+            return x * 4 + y * 2 + z;
         }
 
         void FillNormalAndPoints(int3 tileCount, Camera camera)
@@ -152,8 +123,8 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
                 {
                     for (int z = 0; z < 2; z++)
                     {
-                        FrustumBoundingPoints[x, y, z] =
-                            camera.ScreenToWorldPoint(new Vector3(x, y, z == 0 ? camera.nearClipPlane : camera.farClipPlane));
+                        FrustumBoundingPoints[x*4+ 2*y+z] =
+                            camera.ScreenToWorldPoint(new Vector3(x*camera.scaledPixelWidth, (1-y)*camera.scaledPixelHeight, z == 0 ? camera.nearClipPlane : camera.farClipPlane));
                     }
                 }
             }
@@ -162,47 +133,71 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             //[x][tileIndexX]
             //[y][tileIndexY]
             //[z][tileIndexZ]
-            
-            
 
-            float3 clusterFwdStep = (FrustumBoundingPoints[0,0,1]-FrustumBoundingPoints[0,0,0])/tileCount.z;
-            float3 clusterRightStep = FrustumBoundingPoints[1,0,0]/FrustumBoundingPoints[0,0,0]/tileCount.x;
-            float3 clusterDownStep = FrustumBoundingPoints[0,1,0]/FrustumBoundingPoints[0,0,0]/tileCount.y;
+            int ccc = 0;
+
+            float3 clusterFwdStep = (FrustumBoundingPoints[XYZToIndex(0,0,1)]-FrustumBoundingPoints[0])/tileCount.z;
+            float3 clusterRightStep = (FrustumBoundingPoints[XYZToIndex(1,0,0)]-FrustumBoundingPoints[0])/tileCount.x;
+            float3 clusterDownStep = (FrustumBoundingPoints[XYZToIndex(0,1,0)]-FrustumBoundingPoints[0])/tileCount.y;
             
             //  x,  y,  z
-            // -x, -y, -z
-            float3[] clusterNormal = new float3[3];
-            float3[] clusterNegNormal = new float3[3];
             ClusterNormal[0] = normalize(clusterRightStep);
             ClusterNormal[1] = normalize(clusterDownStep);
             ClusterNormal[2] = normalize(clusterFwdStep);
-            // clusterNegNormal[0] = -clusterNormal[0];
-            // clusterNegNormal[1] = -clusterNormal[1];
-            // clusterNegNormal[2] = -clusterNormal[2];
-            // Generate points
             
             for (int x = 0; x <= tileCount.x; x++)
             {
-                ClusterPoints[0].ReinterpretStore(x,FrustumBoundingPoints[0, 0, 0] + clusterRightStep * x);
+                //ClusterPoints[0].ReinterpretStore(x,FrustumBoundingPoints[0, 0, 0] + clusterRightStep * x);
+                ClusterXPlanePoints[x] = FrustumBoundingPoints[0] + clusterRightStep * x;
+                ClusterXPlanePoints[x] = lerp(FrustumBoundingPoints[0], FrustumBoundingPoints[XYZToIndex(1, 0, 0)],
+                    (float)x / tileCount.x);
             }
 
             for (int y = 0; y <= tileCount.y; y++)
             {
-                ClusterPoints[1].ReinterpretStore(y,FrustumBoundingPoints[0, 0, 0] + clusterDownStep * y);
+                //ClusterPoints[1].ReinterpretStore(y,FrustumBoundingPoints[0, 0, 0] + clusterDownStep * y);
+                ClusterYPlanePoints[y] = FrustumBoundingPoints[0] + clusterDownStep * y;
             }
+
             for (int z = 0; z <= tileCount.z; z++)
             {
-                ClusterPoints[1].ReinterpretStore(z,FrustumBoundingPoints[0, 0, 0] + clusterFwdStep * z);
+                //ClusterPoints[1].ReinterpretStore(z,FrustumBoundingPoints[0, 0, 0] + clusterFwdStep * z);
+                ClusterZPlanePoints[z] = FrustumBoundingPoints[0] + clusterFwdStep * z;
             }
+
+            for (int x = 0; x <= tileCount.x; x++)
+            {
+                float3 a = lerp(FrustumBoundingPoints[XYZToIndex(0,0,1)],FrustumBoundingPoints[XYZToIndex(1,0,1)],(float)x/tileCount.x);
+                float3 b = lerp(FrustumBoundingPoints[XYZToIndex(0,0,0)],FrustumBoundingPoints[XYZToIndex(1,0,0)],(float)x/tileCount.x);
+                float3 c = lerp(FrustumBoundingPoints[XYZToIndex(0,1,0)],FrustumBoundingPoints[XYZToIndex(1,1,0)],(float)x/tileCount.x);
+                float3 down = c-b;
+                float3 fwd = a - b;
+                float3 xNormal = cross(normalize(fwd),normalize(down));
+                ClusterXPlaneNormal[x] = normalize(xNormal);
+            }
+            for (int y = 0; y <= tileCount.y; y++)
+            {
+                float3 a = lerp(FrustumBoundingPoints[XYZToIndex(0,0,1)],FrustumBoundingPoints[XYZToIndex(0,1,1)],(float)y/tileCount.y);
+                float3 b = lerp(FrustumBoundingPoints[XYZToIndex(0,0,0)],FrustumBoundingPoints[XYZToIndex(0,1,0)],(float)y/tileCount.y);
+                float3 c = lerp(FrustumBoundingPoints[XYZToIndex(1,0,0)],FrustumBoundingPoints[XYZToIndex(1,1,0)],(float)y/tileCount.y);
+                float3 fwd = a - b;
+                float3 right = c - b;
+                float3 yNormal = cross(normalize(right),normalize(fwd));
+                ClusterYPlaneNormal[y] = normalize(yNormal);
+            }
+
+            return;
         }
 
         public void Dispose()
         {
-            for (int i = 0; i < 3; i++)
-            {
-                ClusterPoints[i].Dispose();
-            }
-            ClusterPoints.Dispose();
+            ClusterXPlanePoints.Dispose();
+            ClusterYPlanePoints.Dispose();
+            ClusterZPlanePoints.Dispose();
+            FrustumBoundingPoints.Dispose();
+            ClusterXPlaneNormal.Dispose();
+            ClusterYPlaneNormal.Dispose();
+            ClusterZPlaneNormal.Dispose();
             ClusterNormal.Dispose();
         }
     }
@@ -222,7 +217,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         void NewOrReallocate(int binningCount)
         {
 
-            ZBinningPoints = new NativeArray<float3>(binningCount+1,Allocator.Temp);
+            ZBinningPoints = new NativeArray<float3>(binningCount+1,Allocator.TempJob);
         }
 
         void FillZBinningPoints(int binningCount, Camera camera)
@@ -238,57 +233,73 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             ZBinningPoints.Dispose();
         }
     }
-    public struct LightCullingNarrowPhaseJob : IJobParallelFor
+    public struct LightCullingNarrowPhaseJobData : IJobParallelFor
     {
-        [ReadOnly]
-        public NativeArray<VisibleLight> m_LightList;
+        
 
-        public NativeArray<LightIndex> m_lightIndices;
-        public int3 tileCount;
-        public ClusterInfo m_ClusterInfo;
-        // TODO:CTOR
+        [ReadOnly] private NativeArray<float3> m_LightPos;
+        [ReadOnly] private NativeArray<float> m_LightRange;
+        
+        NativeArray<TileLightIndex> m_lightIndices;
+        NativeArray<int> m_TileLightCount;
+         NativeArray<uint2> m_TileLightIndicesMinMax;
+        [ReadOnly]
+        int3 m_TileCount;
+        [ReadOnly]
+        ClusterInfo m_ClusterInfo;
+
+        public void Prepare(NativeArray<float3> sortedLightPos, NativeArray<float> sortedLightRange, NativeArray<TileLightIndex> lightIndices, NativeArray<int> tileLightCount,NativeArray<uint2> lightIndexMinMax,int3 tileCount, ClusterInfo clusterInfo)
+        {
+            m_LightPos = sortedLightPos;
+            m_LightRange = sortedLightRange;
+            m_lightIndices = lightIndices;
+            m_TileCount = tileCount;
+            m_ClusterInfo = clusterInfo;
+            m_TileLightCount = tileLightCount;
+            m_TileLightIndicesMinMax = lightIndexMinMax;
+        }
         bool PlaneCircleCollision(float3 planeNormal, float3 pointOnPlane, float3 circleCenter, float radius)
         {
-            return dot(circleCenter - pointOnPlane, planeNormal) < radius;
+            bool c = dot(circleCenter - pointOnPlane, planeNormal) > -radius;
+            return c;
         }
         public void Execute(int index) //row major
         {
             int3 tileIndex;
-            LightIndex lightIndex = m_lightIndices[index];
-            lightIndex.Reset();
-            tileIndex.x = index / tileCount.x;
-            tileIndex.y = index % tileCount.y;
-            
-            for (int i = 0; i < m_LightList.Length; i++)
+            TileLightIndex tileLightIndex = m_lightIndices[index];
+            tileLightIndex.Reset();
+            tileIndex.x = index % m_TileCount.x;
+            tileIndex.y = index / m_TileCount.x;
+            m_TileLightIndicesMinMax[index] = new uint2(1024,0);
+            var lightCount = 0;
+            for (int i = 0; i < m_LightPos.Length; i++)
             {
-                float3 lightPosition = m_LightList[i].light.transform.position;
-                var range = m_LightList[i].light.range;
-                var tileIsLit = PlaneCircleCollision(-m_ClusterInfo.ClusterNormal[0],
-                                     m_ClusterInfo.ClusterPoints[0][tileIndex.x], lightPosition, range) // plane left
-                                 && PlaneCircleCollision(m_ClusterInfo.ClusterNormal[0],
-                                     m_ClusterInfo.ClusterPoints[0][tileIndex.x + 1], lightPosition, range) // plane right
-                                 && PlaneCircleCollision(m_ClusterInfo.ClusterNormal[0],
-                                     m_ClusterInfo.ClusterPoints[0][tileIndex.x + 1], lightPosition, range) // plane top
-                                 && PlaneCircleCollision(m_ClusterInfo.ClusterNormal[0],
-                                     m_ClusterInfo.ClusterPoints[0][tileIndex.x + 1], lightPosition, range);
+                float3 lightPosition = m_LightPos[i];
+                var range = m_LightRange[i];
+                var tileIsLit = PlaneCircleCollision(m_ClusterInfo.ClusterXPlaneNormal[tileIndex.x],
+                                    m_ClusterInfo.ClusterXPlanePoints[tileIndex.x], lightPosition, range) // plane left
+                                && PlaneCircleCollision(-m_ClusterInfo.ClusterXPlaneNormal[tileIndex.x+1],
+                                    m_ClusterInfo.ClusterXPlanePoints[tileIndex.x + 1], lightPosition, range)// plane right
+                                && PlaneCircleCollision(m_ClusterInfo.ClusterYPlaneNormal[tileIndex.y],
+                                      m_ClusterInfo.ClusterYPlanePoints[tileIndex.y], lightPosition, range) // plane top
+                                && PlaneCircleCollision(-m_ClusterInfo.ClusterYPlaneNormal[tileIndex.y+1],
+                                    m_ClusterInfo.ClusterYPlanePoints[tileIndex.y + 1], lightPosition, range);
+                uint unsignedi = (uint) i;
                 if (tileIsLit)
                 {
-                    lightIndex.SetIndex(i);
+                    tileLightIndex.SetIndex(i);
+                    m_TileLightIndicesMinMax[index] = new uint2(min(unsignedi,m_TileLightIndicesMinMax[index].x),
+                        max(unsignedi, m_TileLightIndicesMinMax[index].y));
+                    lightCount += 1;
                 }
             }
-            m_lightIndices[index] = lightIndex;
+            m_lightIndices[index] = tileLightIndex;
+            m_TileLightCount[index] = lightCount;
         }
     }
     
-    public struct LightCullingJob : IJobParallelFor
-    {
-        public void Execute(int index)
-        {
-            //TODO: Do Actual culling
-        }
-    }
     
-    public struct LightCullingBroadPhaseJob : IJobParallelFor
+    public struct LightCullingBroadPhaseJobData : IJobParallelFor
     {
         public void Execute(int bigTileIndex)
         {
@@ -296,27 +307,34 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         }
     }
     
-    public struct LightCullingZBinningJob : IJobParallelFor
+    public struct LightCullingZBinningJobData : IJobParallelFor
     {
         
         [ReadOnly]
-        public NativeArray<VisibleLight> m_LightList;
+        NativeArray<VisibleLight> m_LightList;
 
-        public NativeArray<LightIndex> m_lightIndices;
-        public int3 tileCount;
-        public ZBinningInfo m_ZBinningInfo;
+        NativeArray<TileLightIndex> m_lightIndices;
+        int m_ZBinningCount;
+        ZBinningInfo m_ZBinningInfo;
 
-        // TODO:CTOR
 
         bool PlaneCircleCollision(float3 planeNormal, float3 pointOnPlane, float3 circleCenter, float radius)
         {
             return dot(circleCenter - pointOnPlane, planeNormal) < radius;
         }
+
+        public void Prepare(NativeArray<VisibleLight> sortedLightList, NativeArray<TileLightIndex> lightIndices, int zBinningCount, ZBinningInfo zBinningInfo)
+        {
+            m_LightList = sortedLightList;
+            m_lightIndices = lightIndices;
+            m_ZBinningCount = zBinningCount;
+            m_ZBinningInfo = zBinningInfo;
+        }
         public void Execute(int zBinningIndex) //16 by default
         {
             int3 tileIndex;
-            LightIndex lightIndex = m_lightIndices[zBinningIndex];
-            lightIndex.Reset();
+            TileLightIndex tileLightIndex = m_lightIndices[zBinningIndex];
+            tileLightIndex.Reset();
             for (int i = 0; i < m_LightList.Length; i++)
             {
                 float3 lightPosition = m_LightList[i].light.transform.position;
@@ -328,26 +346,14 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
                 
                 if (tileIsLit)
                 {
-                    lightIndex.SetIndex(i);
+                    tileLightIndex.SetIndex(i);
                 }
-                
-
-                
             }
-
-            m_lightIndices[zBinningIndex] = lightIndex;
-
-
+            m_lightIndices[zBinningIndex] = tileLightIndex;
         }
-    
     }
 
     
-
-    
-    
-    
-
     // x 0 left 1 right
     // y 0 top 1 right
     // z 0 near z far
@@ -374,29 +380,54 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
     // / y 1 
     public class LightCullingPass
     {
+        private const int ZBinningCount = 16;
+        // Holds light direction for directional lights or position for punctual lights.
+        // When w is set to 1.0, it means it's a punctual light.
+        readonly Vector4 k_DefaultLightPosition = new Vector4(0.0f, 0.0f, 1.0f, 0.0f);
+        readonly Vector4 k_DefaultLightColor = Color.black;
+
+        // Default light attenuation is setup in a particular way that it causes
+        // directional lights to return 1.0 for both distance and angle attenuation
+        readonly Vector4 k_DefaultLightAttenuation = new Vector4(0.0f, 1.0f, 0.0f, 1.0f);
+        readonly Vector4 k_DefaultLightSpotDirection = new Vector4(0.0f, 0.0f, 1.0f, 0.0f);
+        readonly Vector4 k_DefaultLightsProbeChannel = new Vector4(-1.0f, 1.0f, -1.0f, -1.0f);
+        
+        
         private bool m_IsContainerAllocated = false;
         // Allocator.Persistent
         // should be ok
         // NativeArray<float> result = new NativeArray<float>(1, Allocator.TempJob);
-        private LightCullingJob m_LightCullingJob;
-        private NativeArray<int> m_clusterIndices;
+        
+        //private NativeArray<int> m_clusterIndices;
         private NativeArray<VisibleLight> m_SortedLights;
         private NativeList<NativeList<uint>> m_ClusterIndexOfLights;
-        private NativeMultiHashMap<uint, uint> m_LightBufferOutput;
+        private NativeArray<TileLightIndex> m_LightTileIndices;
+        private NativeArray<TileLightIndex> m_LightZBinningIndices;
 
 
         private ClusterInfo m_ClusterInfo;
+        private ZBinningInfo m_ZBinningInfo;
         private LightViewSpaceDistanceComparer m_LightComparer;
 
-        private NativeBitArray test;
-        //private NativeArray<NativeHashMap<int,int>>w
+        private LightCullingBroadPhaseJobData m_BroadPhaseJobData;
+        private LightCullingNarrowPhaseJobData m_NarrowPhaseJobData;
+        private LightCullingZBinningJobData m_ZBinningJobData;
+        private JobHandle m_BroadPhaseJob;
+        private JobHandle m_NarrowPhaseJobHandle;
+        private JobHandle m_ZBinningJob;
 
+        
         private int3 m_TileCount;
 
-        private ComputeBuffer m_LightIndicesBuffer;
+        //private ComputeBuffer m_LightIndicesBuffer;
+        //private ComputeBuffer m_TileLightCountBuffer;
         
         // ssbo light structure
         // Start is called before the first frame update
+
+        private Shader DebugLightCountShader;
+        
+        
         
         
         // light index array[int]
@@ -413,10 +444,15 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             m_TileCount.y = (1080 + tileSizeY - 1) / tileSizeY;
             m_TileCount.z = 1;
             int lightIndicesCount = m_TileCount.x * m_TileCount.y * m_TileCount.z;
-            m_clusterIndices = new NativeArray<int>(lightIndicesCount, Allocator.Persistent);
+            //m_clusterIndices = new NativeArray<int>(lightIndicesCount, Allocator.Persistent);
             m_LightComparer = new LightViewSpaceDistanceComparer();
             m_ClusterInfo = new ClusterInfo();
-            
+            m_ZBinningInfo = new ZBinningInfo();
+            m_BroadPhaseJobData = new LightCullingBroadPhaseJobData();
+            m_NarrowPhaseJobData = new LightCullingNarrowPhaseJobData();
+            m_ZBinningJobData = new LightCullingZBinningJobData();
+
+
 
         }
 
@@ -430,81 +466,235 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             m_TileCount.y = (camera.scaledPixelHeight + tileSizeY - 1) / tileSizeY;
             m_TileCount.z = 1;
             int lightIndicesCount = m_TileCount.x * m_TileCount.y * m_TileCount.z;
-            // assume 16 point light per cluster at most 
-            // at 1080p
-            // 1920*1080*8/32/32*16
-            // if (m_clusterIndices.Length < lightIndicesCout)
-            // {
-            //     m_clusterIndices.Dispose();
-            //     m_clusterIndices = new NativeArray<int>(lightIndicesCout, Allocator.Persistent);
-            // }
-            //
+            int additionalLightCount = 0;
+            int sortedLightIndex = 0;
+            for (int i = 0; i < cullingResults.visibleLights.Length; i++)
+            {
+                if (cullingResults.visibleLights[i].light.type == LightType.Point ||
+                    cullingResults.visibleLights[i].lightType == LightType.Spot)
+                {
+                    additionalLightCount++;
+                }
+            }
             m_LightComparer.ViewCamera = camera;
             m_LightComparer.CameraForward = camera.transform.forward;
-            m_SortedLights = new NativeArray<VisibleLight>( cullingResults.visibleLights.Length, Allocator.Temp);
-            cullingResults.visibleLights.CopyTo(m_SortedLights);
+            m_SortedLights = new NativeArray<VisibleLight>(additionalLightCount, Allocator.TempJob);
+            m_LightTileIndices = new NativeArray<TileLightIndex>(m_TileCount.x * m_TileCount.y, Allocator.TempJob);
+            m_LightZBinningIndices = new NativeArray<TileLightIndex>(ZBinningCount,Allocator.TempJob);
+            for (int i = 0; i < cullingResults.visibleLights.Length; i++)
+            {
+                if (cullingResults.visibleLights[i].light.type == LightType.Point ||
+                    cullingResults.visibleLights[i].lightType == LightType.Spot)
+                {
+                    m_SortedLights[sortedLightIndex] = cullingResults.visibleLights[i];
+                    sortedLightIndex++;
+                }
+            }
+            
+            
+            //cullingResults.visibleLights.CopyTo(m_SortedLights);
             m_SortedLights.Sort(m_LightComparer); // wish the sorting works well
-            
+            var lightPos = new NativeArray<float3>(m_SortedLights.Length, Allocator.TempJob); // switch to float4 if neeed to use uniform buffer
+            var lightRange = new NativeArray<float>(m_SortedLights.Length, Allocator.TempJob);
+            var tileLightCount = new NativeArray<int>(m_TileCount.x * m_TileCount.y, Allocator.TempJob);
+            var tileLightIndicesMinMax = new NativeArray<uint2>(m_TileCount.x * m_TileCount.y, Allocator.TempJob);
+            for (var i = 0; i < m_SortedLights.Length; i++)
+            {
+                lightPos[i] = m_SortedLights[i].light.transform.position;
+                lightRange[i] = m_SortedLights[i].range;
+            }
+             
             m_ClusterInfo.Update(m_TileCount, camera);
+            m_ZBinningInfo.Update(ZBinningCount,camera);
             
-
             // BroadPhaseJob();
-            //NarrowPhaseJob();
-            //FillLightIndex(); // job or not job
             
-            CullingJob(cullingResults, camera);
-            
+            // NarrowPhaseJob();
+            m_NarrowPhaseJobData.Prepare(lightPos,lightRange,m_LightTileIndices, tileLightCount,tileLightIndicesMinMax, m_TileCount,m_ClusterInfo);
+            m_NarrowPhaseJobHandle = m_NarrowPhaseJobData.Schedule(m_LightTileIndices.Length, m_LightTileIndices.Length);
+            m_NarrowPhaseJobHandle.Complete();
+
             // start jobs
 
             // wait for jobs to be finished
 
             // build structured buffer
 
-            BuildSSBO(context);
+            BuildSSBO(context, m_SortedLights, tileLightCount, tileLightIndicesMinMax,
+                new float4(tileSizeX,tileSizeY, 1.0f/tileSizeX, 1.0f/tileSizeY),m_TileCount.x, m_TileCount.y);
             // set to command
 
+            // Clean Up
+            tileLightIndicesMinMax.Dispose();
+            tileLightCount.Dispose();
+            lightPos.Dispose();
+            lightRange.Dispose();
+            m_ZBinningInfo.Dispose();
+            m_ClusterInfo.Dispose();
+            m_LightZBinningIndices.Dispose();
+            m_LightTileIndices.Dispose();
+            m_SortedLights .Dispose();
+
 
         }
-
         
-        public void CullingJob( CullingResults cullingResults,Camera camera)
+        void InitializeLightConstants(NativeArray<VisibleLight> lights, int lightIndex, out Vector4 lightPos, out Vector4 lightColor, out Vector4 lightAttenuation, out Vector4 lightSpotDir, out Vector4 lightOcclusionProbeChannel)
         {
-            // Generate planes aligned with x y z plane
-            // Dispatch culling per light
-            // appending data to buffer
-            
-            //m_LightData = cullingResults.visibleLights;
-            //broad culling
-            //just xyz plane
-            //JobHandle handle = m_LightCullingJob.Schedule(m_LightData.Length,1);
-            // Wait for the job to complele
-            //handle.Complete();
-            
-            //TODO:BROAD PHASE JOB
-            
-            
-            //TODO:NARROW PHASE JOB
-            
-            
+            lightPos = k_DefaultLightPosition;
+            lightColor = k_DefaultLightColor;
+            lightAttenuation = k_DefaultLightAttenuation;
+            lightSpotDir = k_DefaultLightSpotDirection;
+            lightOcclusionProbeChannel = k_DefaultLightsProbeChannel;
+
+            // When no lights are visible, main light will be set to -1.
+            // In this case we initialize it to default values and return
+            if (lightIndex < 0)
+                return;
+
+            VisibleLight lightData = lights[lightIndex];
+            if (lightData.lightType == LightType.Directional)
+            {
+                Vector4 dir = -lightData.localToWorldMatrix.GetColumn(2);
+                lightPos = new Vector4(dir.x, dir.y, dir.z, 0.0f);
+            }
+            else
+            {
+                Vector4 pos = lightData.localToWorldMatrix.GetColumn(3);
+                lightPos = new Vector4(pos.x, pos.y, pos.z, 1.0f);
+            }
+
+            // VisibleLight.finalColor already returns color in active color space
+            lightColor = lightData.finalColor;
+
+            // Directional Light attenuation is initialize so distance attenuation always be 1.0
+            if (lightData.lightType != LightType.Directional)
+            {
+                // Light attenuation in universal matches the unity vanilla one.
+                // attenuation = 1.0 / distanceToLightSqr
+                // We offer two different smoothing factors.
+                // The smoothing factors make sure that the light intensity is zero at the light range limit.
+                // The first smoothing factor is a linear fade starting at 80 % of the light range.
+                // smoothFactor = (lightRangeSqr - distanceToLightSqr) / (lightRangeSqr - fadeStartDistanceSqr)
+                // We rewrite smoothFactor to be able to pre compute the constant terms below and apply the smooth factor
+                // with one MAD instruction
+                // smoothFactor =  distanceSqr * (1.0 / (fadeDistanceSqr - lightRangeSqr)) + (-lightRangeSqr / (fadeDistanceSqr - lightRangeSqr)
+                //                 distanceSqr *           oneOverFadeRangeSqr             +              lightRangeSqrOverFadeRangeSqr
+
+                // The other smoothing factor matches the one used in the Unity lightmapper but is slower than the linear one.
+                // smoothFactor = (1.0 - saturate((distanceSqr * 1.0 / lightrangeSqr)^2))^2
+                float lightRangeSqr = lightData.range * lightData.range;
+                float fadeStartDistanceSqr = 0.8f * 0.8f * lightRangeSqr;
+                float fadeRangeSqr = (fadeStartDistanceSqr - lightRangeSqr);
+                float oneOverFadeRangeSqr = 1.0f / fadeRangeSqr;
+                float lightRangeSqrOverFadeRangeSqr = -lightRangeSqr / fadeRangeSqr;
+                float oneOverLightRangeSqr = 1.0f / Mathf.Max(0.0001f, lightData.range * lightData.range);
+
+                // On mobile: Use the faster linear smoothing factor.
+                // On other devices: Use the smoothing factor that matches the GI.
+                lightAttenuation.x = Application.isMobilePlatform ? oneOverFadeRangeSqr : oneOverLightRangeSqr;
+                lightAttenuation.y = lightRangeSqrOverFadeRangeSqr;
+            }
+
+            if (lightData.lightType == LightType.Spot)
+            {
+                Vector4 dir = lightData.localToWorldMatrix.GetColumn(2);
+                lightSpotDir = new Vector4(-dir.x, -dir.y, -dir.z, 0.0f);
+
+                // Spot Attenuation with a linear falloff can be defined as
+                // (SdotL - cosOuterAngle) / (cosInnerAngle - cosOuterAngle)
+                // This can be rewritten as
+                // invAngleRange = 1.0 / (cosInnerAngle - cosOuterAngle)
+                // SdotL * invAngleRange + (-cosOuterAngle * invAngleRange)
+                // If we precompute the terms in a MAD instruction
+                float cosOuterAngle = Mathf.Cos(Mathf.Deg2Rad * lightData.spotAngle * 0.5f);
+                // We neeed to do a null check for particle lights
+                // This should be changed in the future
+                // Particle lights will use an inline function
+                float cosInnerAngle;
+                if (lightData.light != null)
+                    cosInnerAngle = Mathf.Cos(lightData.light.innerSpotAngle * Mathf.Deg2Rad * 0.5f);
+                else
+                    cosInnerAngle = Mathf.Cos((2.0f * Mathf.Atan(Mathf.Tan(lightData.spotAngle * 0.5f * Mathf.Deg2Rad) * (64.0f - 18.0f) / 64.0f)) * 0.5f);
+                float smoothAngleRange = Mathf.Max(0.001f, cosInnerAngle - cosOuterAngle);
+                float invAngleRange = 1.0f / smoothAngleRange;
+                float add = -cosOuterAngle * invAngleRange;
+                lightAttenuation.z = invAngleRange;
+                lightAttenuation.w = add;
+            }
+
+            Light light = lightData.light;
+
+            // Set the occlusion probe channel.
+            int occlusionProbeChannel = light != null ? light.bakingOutput.occlusionMaskChannel : -1;
+
+            // If we have baked the light, the occlusion channel is the index we need to sample in 'unity_ProbesOcclusion'
+            // If we have not baked the light, the occlusion channel is -1.
+            // In case there is no occlusion channel is -1, we set it to zero, and then set the second value in the
+            // input to one. We then, in the shader max with the second value for non-occluded lights.
+            lightOcclusionProbeChannel.x = occlusionProbeChannel == -1 ? 0f : occlusionProbeChannel;
+            lightOcclusionProbeChannel.y = occlusionProbeChannel == -1 ? 1f : 0f;
+
+            // TODO: Add support to shadow mask
+            // if (light != null && light.bakingOutput.mixedLightingMode == MixedLightingMode.Subtractive && light.bakingOutput.lightmapBakeType == LightmapBakeType.Mixed)
+            // {
+            //     if (m_MixedLightingSetup == MixedLightingSetup.None && lightData.light.shadows != LightShadows.None)
+            //     {
+            //         m_MixedLightingSetup = MixedLightingSetup.Subtractive;
+            //     }
+            // }
         }
 
         
-        public void BuildSSBO(ScriptableRenderContext context)
+
+        
+        public void BuildSSBO(ScriptableRenderContext context, NativeArray<VisibleLight> sortedLights, NativeArray<int> tileLightCount, NativeArray<uint2> tileLightIndicesMinMax,float4 tileSize, int tileCountX, int tileCountY)
         {
             var cmd = CommandBufferPool.Get("SetLightingBuffer");
-            
-            
+
+            var maxAdditionalLightsCount = 256;
+            var additionalLightCount = min(sortedLights.Length, maxAdditionalLightsCount);
+            var tileLightCountBuffer = ShaderData.instance.GetTileLightCountBuffer(tileLightCount.Length);
+            tileLightCountBuffer.SetData(tileLightCount);
             //TODO:Update light data buffer
-            //TODO:Update light indices buffer
+            NativeArray<ShaderInput.LightData> additionalLightsData = new NativeArray<ShaderInput.LightData>(additionalLightCount, Allocator.Temp);
+            for (int i = 0, lightIter = 0; i < sortedLights.Length && lightIter < maxAdditionalLightsCount; ++i)
+            {
+                VisibleLight light = sortedLights[i];
+                ShaderInput.LightData data;
+                InitializeLightConstants(sortedLights, i,
+                    out data.position, out data.color, out data.attenuation,
+                    out data.spotDirection, out data.occlusionProbeChannels);
+                additionalLightsData[lightIter] = data;
+                lightIter++;
+            }
+
+            var lightDataBuffer = ShaderData.instance.GetLightDataBuffer(additionalLightCount);
+            lightDataBuffer.SetData(additionalLightsData);
             
-            //Light Indices
-            // Light indecies float4 bitmask per tile
-            cmd.SetGlobalBuffer("LightDataBuffer",m_LightDataBuffer);
-            cmd.SetGlobalBuffer("LightIndicesBuffer",m_LightIndicesBuffer);
+            
+            //TODO:Update light indices buffer
+            var lightIndicesBuffer = ShaderData.instance.GetLightIndicesBuffer(tileCountX*tileCountY);
+            lightIndicesBuffer.SetData(m_LightTileIndices);
+
+            var tileLightIndicesMinMaxBuffer =
+                ShaderData.instance.GetTileLightIndicesMinMaxBuffer(tileCountX * tileCountY);
+            tileLightIndicesMinMaxBuffer.SetData(tileLightIndicesMinMax);
+            
+            //cmd.SetGlobalVector("_TileSize", tileSize);
+            cmd.SetGlobalInt("_TileCountX", tileCountX);
+            cmd.SetGlobalInt("_TileCountY", tileCountY);
+            // Light Indices
+            // Light indices float4 bitmask per tile
+            cmd.SetGlobalBuffer("LightDataBuffer",lightDataBuffer);
+            cmd.SetGlobalBuffer("TileLightCountBuffer", tileLightCountBuffer);
+            cmd.SetGlobalBuffer("TileLightIndicesBuffer",lightIndicesBuffer);
+            cmd.SetGlobalBuffer("TileLightIndicesMinMaxBuffer",tileLightIndicesMinMaxBuffer);
+            context.ExecuteCommandBuffer(cmd);
+            cmd.Clear();
         }
         public void Dispose()
         {
-            m_clusterIndices.Dispose();
+            //m_clusterIndices.Dispose();
         }
 
     }

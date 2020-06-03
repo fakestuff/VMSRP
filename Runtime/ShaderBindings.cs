@@ -73,13 +73,13 @@
             CommandBufferPool.Release(cmd);
         }
 
-        public static void SetPerCameraShaderVariables(ScriptableRenderContext context, Camera camera)
+        public static void SetPerCameraShaderVariables(ScriptableRenderContext context, Camera camera, bool renderIntoTexture = true)
         {
             Rect pixelRect = camera.pixelRect;
             float cameraWidth = (float)pixelRect.width;
             float cameraHeight = (float)pixelRect.height;
 
-            Matrix4x4 projMatrix = GL.GetGPUProjectionMatrix(camera.projectionMatrix, true);
+            Matrix4x4 projMatrix = GL.GetGPUProjectionMatrix(camera.projectionMatrix, renderIntoTexture);
             Matrix4x4 viewMatrix = camera.worldToCameraMatrix;
             Matrix4x4 viewProjMatrix = projMatrix * viewMatrix;
 

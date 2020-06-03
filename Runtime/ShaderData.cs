@@ -13,6 +13,8 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         static ShaderData m_Instance = null;
         ComputeBuffer m_LightDataBuffer = null;
         ComputeBuffer m_LightIndicesBuffer = null;
+        ComputeBuffer m_TileLightCountBuffer = null;
+        ComputeBuffer m_TileLightIndicesMinMaxBuffer = null;
         
         ShaderData()
         {
@@ -33,16 +35,28 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         {
             DisposeBuffer(ref m_LightDataBuffer);
             DisposeBuffer(ref m_LightIndicesBuffer);
+            DisposeBuffer(ref m_TileLightCountBuffer);
+            DisposeBuffer(ref m_TileLightIndicesMinMaxBuffer);
         }
         
-        // internal ComputeBuffer GetLightDataBuffer(int size)
-        // {
-        //     return GetOrUpdateBuffer<ShaderInput.LightData>(ref m_LightDataBuffer, size);
-        // }
+        internal ComputeBuffer GetLightDataBuffer(int size)
+        {
+            return GetOrUpdateBuffer<ShaderInput.LightData>(ref m_LightDataBuffer, size);
+        }
 
         internal ComputeBuffer GetLightIndicesBuffer(int size)
         {
             return GetOrUpdateBuffer<uint4>(ref m_LightIndicesBuffer, size);
+        }
+
+        internal ComputeBuffer GetTileLightCountBuffer(int size)
+        {
+            return GetOrUpdateBuffer<int>(ref m_TileLightCountBuffer, size);
+        }
+
+        internal ComputeBuffer GetTileLightIndicesMinMaxBuffer(int size)
+        {
+            return GetOrUpdateBuffer<int2>(ref m_TileLightIndicesMinMaxBuffer, size);
         }
         
         ComputeBuffer GetOrUpdateBuffer<T>(ref ComputeBuffer buffer, int size) where T : struct

@@ -19,13 +19,22 @@
 
             #pragma vertex Vert
             #pragma fragment Fragment
+            #define SHADER_HINT_NICE_QUALITY 1
+            #define UNITY_USE_NATIVE_HDR 1
+            #define USE_STRUCTURED_BUFFER_FOR_LIGHT_DATA 1
+            //#define USE_CLUSTER_LIGHTING 1
+            
             
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
             #include "Packages/com.render-pipelines.custom/ShaderLibrary/Core.hlsl"
             #include "Packages/com.render-pipelines.custom/ShaderLibrary/SurfaceInput.hlsl"
-            #include "Packages/com.render-pipelines.custom/ShaderLibrary/Lighting.hlsl"
-            #define UNITY_USE_NATIVE_HDR 1
             
+            // LightData is define in SurfaceInput
+            StructuredBuffer<LightData> LightDataBuffer;
+            StructuredBuffer<uint4> TileLightIndicesBuffer;
+            StructuredBuffer<uint2> TileLightIndicesMinMaxBuffer;
+            #include "Packages/com.render-pipelines.custom/ShaderLibrary/Lighting.hlsl"
+ 
             TEXTURE2D(_GBufferAlbedo);
             TEXTURE2D(_GBufferNormal);
             TEXTURE2D(_GBufferMetallicOcclusionSmoothness); //R Metallic,G Occlusion, B None, A Smoothness
@@ -39,6 +48,11 @@
             float4 _GBufferAlbedo_ST;
             CBUFFER_END
             float4x4 unity_MatrixInvVP;
+            int _TileCountX;
+            int _TileCountY;
+            
+            
+            
             struct Attributes
             {
                 float4 positionOS   : POSITION;
@@ -133,7 +147,14 @@
                 //return half4(ComputeWorldSpacePosition(IN.uv, depth, unity_MatrixInvVP),0);
                 //return half4(IN.uv,0,1);
                 //return half4(inputData.viewDirectionWS,1.0);
-                half4 color = UniversalFragmentPBR(inputData, surfaceData.albedo, surfaceData.metallic, surfaceData.specular, surfaceData.smoothness, surfaceData.occlusion, surfaceData.emission, surfaceData.alpha);
+                //half4 color = UniversalFragmentPBR(inputData, surfaceData.albedo, surfaceData.metallic, surfaceData.specular, surfaceData.smoothness, surfaceData.occlusion, surfaceData.emission, surfaceData.alpha);
+                // UV to tile index
+                int2 tileIndex = (int2)(_ScreenSize.xy*float2(IN.uv.x,1-IN.uv.y)/64);
+                uint tileBufferIndex = tileIndex.x+tileIndex.y*_TileCountX;
+                uint zBinningIndex = 0;
+                half4 color = UniversalFragmentPBRCluster(inputData, surfaceData.albedo, surfaceData.metallic, surfaceData.specular, surfaceData.smoothness, surfaceData.occlusion, surfaceData.emission, surfaceData.alpha,
+                tileBufferIndex, zBinningIndex);
+
                 return color;
             }
             

@@ -55,12 +55,12 @@ float DistanceAttenuation(float distanceSqr, half2 distanceAttenuation)
     // for directional lights attenuation will be 1
     float lightAtten = rcp(distanceSqr);
 
-#if SHADER_HINT_NICE_QUALITY
+//#if SHADER_HINT_NICE_QUALITY
     // Use the smoothing factor also used in the Unity lightmapper.
     half factor = distanceSqr * distanceAttenuation.x;
     half smoothFactor = saturate(1.0h - factor * factor);
     smoothFactor = smoothFactor * smoothFactor;
-#else
+//#else
     // We need to smoothly fade attenuation to light range. We start fading linearly at 80% of light range
     // Therefore:
     // fadeDistance = (0.8 * 0.8 * lightRangeSq)
@@ -68,8 +68,8 @@ float DistanceAttenuation(float distanceSqr, half2 distanceAttenuation)
     // We can rewrite that to fit a MAD by doing
     // distanceSqr * (1.0 / (fadeDistanceSqr - lightRangeSqr)) + (-lightRangeSqr / (fadeDistanceSqr - lightRangeSqr)
     // distanceSqr *        distanceAttenuation.y            +             distanceAttenuation.z
-    half smoothFactor = saturate(distanceSqr * distanceAttenuation.x + distanceAttenuation.y);
-#endif
+    //half smoothFactor = saturate(distanceSqr * distanceAttenuation.x + distanceAttenuation.y);
+//#endif
 
     return lightAtten * smoothFactor;
 }
@@ -115,7 +115,7 @@ Light GetMainLight(float4 shadowCoord)
     light.shadowAttenuation = MainLightRealtimeShadow(shadowCoord);
     return light;
 }
-
+/*
 // Fills a light struct given a perObjectLightIndex
 Light GetAdditionalPerObjectLight(int perObjectLightIndex, float3 positionWS)
 {
@@ -166,6 +166,61 @@ Light GetAdditionalPerObjectLight(int perObjectLightIndex, float3 positionWS)
 
     return light;
 }
+*/
+/*
+#if USE_CLUSTER_LIGHTING
+// Fills a light struct given a perObjectLightIndex
+Light GetAdditionalPerObjectLight(int lightBufferIndex, float3 positionWS)
+{
+    // Abstraction over Light input constants
+#if USE_STRUCTURED_BUFFER_FOR_LIGHT_DATA
+    float4 lightPositionWS = _AdditionalLightsBuffer[perObjectLightIndex].position;
+    half3 color = _AdditionalLightsBuffer[perObjectLightIndex].color.rgb;
+    half4 distanceAndSpotAttenuation = _AdditionalLightsBuffer[perObjectLightIndex].attenuation;
+    half4 spotDirection = _AdditionalLightsBuffer[perObjectLightIndex].spotDirection;
+    half4 lightOcclusionProbeInfo = _AdditionalLightsBuffer[perObjectLightIndex].occlusionProbeChannels;
+#else
+    float4 lightPositionWS = _AdditionalLightsPosition[perObjectLightIndex];
+    half3 color = _AdditionalLightsColor[perObjectLightIndex].rgb;
+    half4 distanceAndSpotAttenuation = _AdditionalLightsAttenuation[perObjectLightIndex];
+    half4 spotDirection = _AdditionalLightsSpotDir[perObjectLightIndex];
+    half4 lightOcclusionProbeInfo = _AdditionalLightsOcclusionProbes[perObjectLightIndex];
+#endif
+
+    // Directional lights store direction in lightPosition.xyz and have .w set to 0.0.
+    // This way the following code will work for both directional and punctual lights.
+    float3 lightVector = lightPositionWS.xyz - positionWS * lightPositionWS.w;
+    float distanceSqr = max(dot(lightVector, lightVector), HALF_MIN);
+
+    half3 lightDirection = half3(lightVector * rsqrt(distanceSqr));
+    half attenuation = DistanceAttenuation(distanceSqr, distanceAndSpotAttenuation.xy) * AngleAttenuation(spotDirection.xyz, lightDirection, distanceAndSpotAttenuation.zw);
+
+    Light light;
+    light.direction = lightDirection;
+    light.distanceAttenuation = attenuation;
+    light.shadowAttenuation = AdditionalLightRealtimeShadow(perObjectLightIndex, positionWS);
+    light.color = color;
+
+    // In case we're using light probes, we can sample the attenuation from the `unity_ProbesOcclusion`
+#if defined(LIGHTMAP_ON) || defined(_MIXED_LIGHTING_SUBTRACTIVE)
+    // First find the probe channel from the light.
+    // Then sample `unity_ProbesOcclusion` for the baked occlusion.
+    // If the light is not baked, the channel is -1, and we need to apply no occlusion.
+
+    // probeChannel is the index in 'unity_ProbesOcclusion' that holds the proper occlusion value.
+    int probeChannel = lightOcclusionProbeInfo.x;
+
+    // lightProbeContribution is set to 0 if we are indeed using a probe, otherwise set to 1.
+    half lightProbeContribution = lightOcclusionProbeInfo.y;
+
+    half probeOcclusionValue = unity_ProbesOcclusion[probeChannel];
+    light.distanceAttenuation *= max(probeOcclusionValue, lightProbeContribution);
+#endif
+
+    return light;
+}
+#endif
+*/
 
 uint GetPerObjectLightIndexOffset()
 {
@@ -174,6 +229,50 @@ uint GetPerObjectLightIndexOffset()
 #else
     return 0;
 #endif
+}
+
+Light GetAdditionalLightCluster(uint lightBufferIndex, float3 positionWS)
+{
+    float4 lightPositionWS = LightDataBuffer[lightBufferIndex].position;
+    half3 color = LightDataBuffer[lightBufferIndex].color.rgb;
+    half4 distanceAndSpotAttenuation = LightDataBuffer[lightBufferIndex].attenuation;
+    half4 spotDirection = LightDataBuffer[lightBufferIndex].spotDirection;
+    half4 lightOcclusionProbeInfo = LightDataBuffer[lightBufferIndex].occlusionProbeChannels;
+
+    // Directional lights store direction in lightPosition.xyz and have .w set to 0.0.
+    // This way the following code will work for both directional and punctual lights.
+    float3 lightVector = lightPositionWS.xyz - positionWS * lightPositionWS.w;
+    float distanceSqr = max(dot(lightVector, lightVector), HALF_MIN);
+
+    half3 lightDirection = half3(lightVector * rsqrt(distanceSqr));
+    half attenuation = DistanceAttenuation(distanceSqr, distanceAndSpotAttenuation.xy) * AngleAttenuation(spotDirection.xyz, lightDirection, distanceAndSpotAttenuation.zw);
+
+    Light light;
+    light.direction = lightDirection;
+    light.distanceAttenuation = attenuation;
+    light.shadowAttenuation = 1.0f;//AdditionalLightRealtimeShadow(perObjectLightIndex, positionWS);
+    light.color = color;
+    
+
+
+    // In case we're using light probes, we can sample the attenuation from the `unity_ProbesOcclusion`
+#if defined(LIGHTMAP_ON) || defined(_MIXED_LIGHTING_SUBTRACTIVE)
+    // First find the probe channel from the light.
+    // Then sample `unity_ProbesOcclusion` for the baked occlusion.
+    // If the light is not baked, the channel is -1, and we need to apply no occlusion.
+
+    // probeChannel is the index in 'unity_ProbesOcclusion' that holds the proper occlusion value.
+    int probeChannel = lightOcclusionProbeInfo.x;
+
+    // lightProbeContribution is set to 0 if we are indeed using a probe, otherwise set to 1.
+    half lightProbeContribution = lightOcclusionProbeInfo.y;
+
+    half probeOcclusionValue = unity_ProbesOcclusion[probeChannel];
+    light.distanceAttenuation *= max(probeOcclusionValue, lightProbeContribution);
+#endif
+
+
+    return light;
 }
 
 // Returns a per-object index given a loop index.
@@ -221,11 +320,14 @@ int GetPerObjectLightIndex(uint index)
 
 // Fills a light struct given a loop i index. This will convert the i
 // index to a perObjectLightIndex
+/*
 Light GetAdditionalLight(uint i, float3 positionWS)
 {
     int perObjectLightIndex = GetPerObjectLightIndex(i);
     return GetAdditionalPerObjectLight(perObjectLightIndex, positionWS);
-}
+}*/
+
+
 
 int GetAdditionalLightsCount()
 {
@@ -531,8 +633,9 @@ half3 LightingPhysicallyBased(BRDFData brdfData, half3 lightColor, half3 lightDi
 {
     half NdotL = saturate(dot(normalWS, lightDirectionWS));
     
+    // TODO: Fixed Directional Light
     half3 radiance = lightColor * (lightAttenuation * NdotL);
-    radiance = lightColor * NdotL;
+
     return DirectBDRF(brdfData, normalWS, lightDirectionWS, viewDirectionWS) * radiance;
 }
 
@@ -540,7 +643,7 @@ half3 LightingPhysicallyBased(BRDFData brdfData, Light light, half3 normalWS, ha
 {
     return LightingPhysicallyBased(brdfData, light.color, light.direction, light.distanceAttenuation * light.shadowAttenuation, normalWS, viewDirectionWS);
 }
-
+/*
 half3 VertexLighting(float3 positionWS, half3 normalWS)
 {
     half3 vertexLightColor = half3(0.0, 0.0, 0.0);
@@ -557,7 +660,7 @@ half3 VertexLighting(float3 positionWS, half3 normalWS)
 
     return vertexLightColor;
 }
-
+*/
 
 
 
@@ -574,14 +677,44 @@ half4 UniversalFragmentPBR(InputData inputData, half3 albedo, half metallic, hal
     MixRealtimeAndBakedGI(mainLight, inputData.normalWS, inputData.bakedGI, half4(0, 0, 0, 0));
     half3 color = half3(0,0,0);//GlobalIllumination(brdfData, inputData.bakedGI, occlusion, inputData.normalWS, inputData.viewDirectionWS);
     color += LightingPhysicallyBased(brdfData, mainLight, inputData.normalWS, inputData.viewDirectionWS);
-/*#ifdef _ADDITIONAL_LIGHTS
+    #ifdef _ADDITIONAL_LIGHTS
     uint pixelLightCount = GetAdditionalLightsCount();
     for (uint lightIndex = 0u; lightIndex < pixelLightCount; ++lightIndex)
     {
         Light light = GetAdditionalLight(lightIndex, inputData.positionWS);
         color += LightingPhysicallyBased(brdfData, light, inputData.normalWS, inputData.viewDirectionWS);
     }
-#endif*/
+    #endif
+
+
+    color += emission;
+    return half4(color, alpha);
+}
+
+half4 UniversalFragmentPBRCluster(InputData inputData, half3 albedo, half metallic, half3 specular,
+    half smoothness, half occlusion, half3 emission, half alpha, uint tileBufferId, uint zBinningId)
+{
+    BRDFData brdfData;
+    InitializeBRDFData(albedo, metallic, specular, smoothness, alpha, brdfData);
+    Light mainLight = GetMainLight(inputData.shadowCoord);
+    MixRealtimeAndBakedGI(mainLight, inputData.normalWS, inputData.bakedGI, half4(0, 0, 0, 0));
+    half3 color = half3(0,0,0);//GlobalIllumination(brdfData, inputData.bakedGI, occlusion, inputData.normalWS, inputData.viewDirectionWS);
+    color += LightingPhysicallyBased(brdfData, mainLight, inputData.normalWS, inputData.viewDirectionWS);
+    //#ifdef USE_CLUSTER_LIGHTING
+    // Get Light Index Min Man
+    uint lightIndexStart = TileLightIndicesMinMaxBuffer[tileBufferId][0];
+    uint lightIndexEnd = TileLightIndicesMinMaxBuffer[tileBufferId][1];
+    // loop throguth index
+    for (uint lightIndex = lightIndexStart; lightIndex <= lightIndexEnd; ++lightIndex)
+    {
+        if (TileLightIndicesBuffer[tileBufferId][lightIndex/32] & (0x80000000u >> (lightIndex%32)))
+        {
+            Light light = GetAdditionalLightCluster(lightIndex, inputData.positionWS);
+            color += LightingPhysicallyBased(brdfData, light, inputData.normalWS, inputData.viewDirectionWS);
+        }
+    }
+    //#endif
+
 
     color += emission;
     return half4(color, alpha);
