@@ -42,7 +42,7 @@
             };
             //#if USE_STRUCTURED_BUFFER_FOR_LIGHT_DATA
             StructuredBuffer<LightData> LightDataBuffer;
-            StructuredBuffer<uint4> TileLightIndicesBuffer;
+            StructuredBuffer<uint2> TileLightIndicesBuffer;
             StructuredBuffer<uint2> TileLightIndicesMinMaxBuffer;
             /*#else
             float4 _AdditionalLightsPosition[MAX_VISIBLE_LIGHTS];

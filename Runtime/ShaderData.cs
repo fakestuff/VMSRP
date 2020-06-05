@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using System;
 using System.Runtime.InteropServices;
+using Unity.Collections;
 using Unity.Mathematics;
 
 namespace UnityEngine.Rendering.CustomRenderPipeline
@@ -46,7 +47,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
 
         internal ComputeBuffer GetLightIndicesBuffer(int size)
         {
-            return GetOrUpdateBuffer<uint4>(ref m_LightIndicesBuffer, size);
+            return GetOrUpdateBuffer<uint>(ref m_LightIndicesBuffer, size);
         }
 
         internal ComputeBuffer GetTileLightCountBuffer(int size)

@@ -705,9 +705,12 @@ half4 UniversalFragmentPBRCluster(InputData inputData, half3 albedo, half metall
     uint lightIndexStart = TileLightIndicesMinMaxBuffer[tileBufferId][0];
     uint lightIndexEnd = TileLightIndicesMinMaxBuffer[tileBufferId][1];
     // loop throguth index
-    for (uint lightIndex = lightIndexStart; lightIndex <= lightIndexEnd; ++lightIndex)
+    //for (uint lightIndex = lightIndexStart; lightIndex <= lightIndexEnd; ++lightIndex)
+    for (uint lightIndex = 0; lightIndex <= 31; ++lightIndex)
     {
-        if (TileLightIndicesBuffer[tileBufferId][lightIndex/32] & (0x80000000u >> (lightIndex%32)))
+        //if (TileLightIndicesBuffer[tileBufferId]   & (0x80000000u >> (lightIndex)))
+        //if (TileLightIndicesBuffer[tileBufferId][1-lightIndex/32] & (0x00000001u << (lightIndex%32)))
+        if (TileLightIndicesBuffer[tileBufferId] & (0x00000001u << (lightIndex)))
         {
             Light light = GetAdditionalLightCluster(lightIndex, inputData.positionWS);
             color += LightingPhysicallyBased(brdfData, light, inputData.normalWS, inputData.viewDirectionWS);

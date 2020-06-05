@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Resources;
 using UnityEngine.Rendering;
 using UnityEngine.Bindings;
@@ -38,7 +39,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
     
     public struct TileLightIndex
     { 
-        uint4 IndexBitArry; // support up to 32 light per tile
+        uint2 IndexBitArry; // support up to 32 light per tile
         //high end
         //1000000000...00000 -> 1
         //0100000000...00000 -> 2
@@ -51,8 +52,6 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             IndexBitArry[id / 32] |= 0x80000000u >> (id%32);
 
             return this;
-
-
         }
 
         bool GetIndex(int id)
@@ -61,6 +60,14 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         }
         
         
+    }
+
+    public struct TileInfo
+    {
+        public int2 BigTileSize;
+        public int2 BigTileCount;
+        public int2 SmallTileSize;
+        public int2 SmallTileCount;
     }
 
     public struct ZBinningLightIndexRange
@@ -202,6 +209,14 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         }
     }
 
+    public struct CullingUtls
+    {
+        public static bool PlaneSphereInclusion(float3 planeNormal, float3 pointOnPlane, float3 circleCenter, float radius)
+        {
+            bool c = dot(circleCenter - pointOnPlane, planeNormal) > -radius;
+            return c;
+        }
+    }
     public struct ZBinningInfo
     {
         public float3 CameraNormal;
@@ -233,19 +248,19 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             ZBinningPoints.Dispose();
         }
     }
-    public struct LightCullingNarrowPhaseJobData : IJobParallelFor
+    public struct LightCullingOnePhaseJobData : IJobParallelFor
     {
         
 
-        [ReadOnly] private NativeArray<float3> m_LightPos;
-        [ReadOnly] private NativeArray<float> m_LightRange;
+        [Unity.Collections.ReadOnly] private NativeArray<float3> m_LightPos;
+        [Unity.Collections.ReadOnly] private NativeArray<float> m_LightRange;
         
         NativeArray<TileLightIndex> m_lightIndices;
         NativeArray<int> m_TileLightCount;
          NativeArray<uint2> m_TileLightIndicesMinMax;
-        [ReadOnly]
+        [Unity.Collections.ReadOnly]
         int3 m_TileCount;
-        [ReadOnly]
+        [Unity.Collections.ReadOnly]
         ClusterInfo m_ClusterInfo;
 
         public void Prepare(NativeArray<float3> sortedLightPos, NativeArray<float> sortedLightRange, NativeArray<TileLightIndex> lightIndices, NativeArray<int> tileLightCount,NativeArray<uint2> lightIndexMinMax,int3 tileCount, ClusterInfo clusterInfo)
@@ -297,20 +312,86 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             m_TileLightCount[index] = lightCount;
         }
     }
-    
-    
-    public struct LightCullingBroadPhaseJobData : IJobParallelFor
+
+    // First Phase: BroadPhase
+    // Second Phase: NarrowPhase
+    public struct LightCullingTwoPhaseJobData : IJobParallelFor
     {
-        public void Execute(int bigTileIndex)
+        [Unity.Collections.ReadOnly]
+        public NativeArray<float3> m_LightPos;
+        [Unity.Collections.ReadOnly]
+        public NativeArray<float> m_LightAffectingRange;
+        
+        [Unity.Collections.ReadOnly]
+        public NativeArray<BitField32> m_SrcTileLightIndicesMask;
+        public NativeArray<BitField32> m_ResTileLightIndicesMask;
+        public NativeArray<uint2> m_TileLightIndicesMinMax;
+        public NativeArray<int>m_TileLightCount;
+        public int2 m_TileSize; // 64 64 by default
+        public int2 m_TileCount;
+        public int2 m_LastPhaseToCurTileScale;
+        public ClusterInfo m_ClusterInfo;
+
+        
+        public void Prepare(NativeArray<float3> lightPos, NativeArray<float> lightAffectingRange, NativeArray<BitField32> srcLightIndicesMask,NativeArray<BitField32> resLightIndicesMask,
+            NativeArray<int> tileLightCount,
+            NativeArray<uint2> tileLightIndicesMinMax, ClusterInfo bigClusterInfo, int2 tileCount, int2 lastPhaseToCurTileScale)
         {
-            //TODO: Do Actual culling
+            m_LightPos = lightPos;
+            m_LightAffectingRange = lightAffectingRange;
+            m_SrcTileLightIndicesMask = srcLightIndicesMask;
+            m_ResTileLightIndicesMask = resLightIndicesMask;
+            m_TileLightIndicesMinMax = tileLightIndicesMinMax;
+            m_TileLightCount = tileLightCount;
+            m_TileCount = tileCount;
+            m_ClusterInfo = bigClusterInfo;
+            m_LastPhaseToCurTileScale = lastPhaseToCurTileScale;
+        }
+
+        public void Execute(int jobId)
+        {
+            int2 tileId = new int2(jobId%m_TileCount.x, jobId/m_TileCount.x);
+            int2 bigTileId = tileId / m_LastPhaseToCurTileScale;
+            int2 bigTileCount = (m_TileCount+ m_LastPhaseToCurTileScale - new int2(1,1))/ m_LastPhaseToCurTileScale;
+            int bigTileBufferID = bigTileId.x + bigTileId.y * bigTileCount.x;
+            int lightCount = 0;
+            m_ResTileLightIndicesMask[jobId].Clear();
+            BitField32 lightIndicies = new BitField32();
+            for (int lightIndex = 0; lightIndex < m_LightPos.Length; lightIndex++)
+            {
+                if (m_SrcTileLightIndicesMask[bigTileBufferID].IsSet(lightIndex))
+                {
+                    float3 lightPosition = m_LightPos[lightIndex];
+                    var range = m_LightAffectingRange[lightIndex];
+                    var tileIsLit = CullingUtls.PlaneSphereInclusion(m_ClusterInfo.ClusterXPlaneNormal[tileId.x],
+                                        m_ClusterInfo.ClusterXPlanePoints[tileId.x], lightPosition, range) // plane left
+                                    && CullingUtls.PlaneSphereInclusion(-m_ClusterInfo.ClusterXPlaneNormal[tileId.x+1],
+                                        m_ClusterInfo.ClusterXPlanePoints[tileId.x + 1], lightPosition, range)// plane right
+                                    && CullingUtls.PlaneSphereInclusion(m_ClusterInfo.ClusterYPlaneNormal[tileId.y],
+                                        m_ClusterInfo.ClusterYPlanePoints[tileId.y], lightPosition, range) // plane top
+                                    && CullingUtls.PlaneSphereInclusion(-m_ClusterInfo.ClusterYPlaneNormal[tileId.y+1],
+                                        m_ClusterInfo.ClusterYPlanePoints[tileId.y + 1], lightPosition, range);
+                    uint unsignedLightIndex = (uint)lightIndex;
+                    if (tileIsLit)
+                    {
+                        lightIndicies.SetBits(lightIndex,true);
+                        
+                        m_TileLightIndicesMinMax[jobId] = new uint2(min(unsignedLightIndex,m_TileLightIndicesMinMax[jobId].x),
+                            max(unsignedLightIndex, m_TileLightIndicesMinMax[jobId].y));
+                        lightCount += 1;
+                    }
+                }
+            }
+
+            m_ResTileLightIndicesMask[jobId] = lightIndicies;
+            m_TileLightCount[jobId] = lightCount;
         }
     }
     
     public struct LightCullingZBinningJobData : IJobParallelFor
     {
         
-        [ReadOnly]
+        [Unity.Collections.ReadOnly]
         NativeArray<VisibleLight> m_LightList;
 
         NativeArray<TileLightIndex> m_lightIndices;
@@ -380,7 +461,8 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
     // / y 1 
     public class LightCullingPass
     {
-        private const int ZBinningCount = 16;
+        private const int MaxOnScreenLightCount = 64;
+        private const int ZBinningCount = 10;
         // Holds light direction for directional lights or position for punctual lights.
         // When w is set to 1.0, it means it's a punctual light.
         readonly Vector4 k_DefaultLightPosition = new Vector4(0.0f, 0.0f, 1.0f, 0.0f);
@@ -402,22 +484,26 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         private NativeArray<VisibleLight> m_SortedLights;
         private NativeList<NativeList<uint>> m_ClusterIndexOfLights;
         private NativeArray<TileLightIndex> m_LightTileIndices;
+        private NativeArray<BitField32> m_BigTileIndices;
+        private NativeArray<BitField32> m_SmallTileIndices;
         private NativeArray<TileLightIndex> m_LightZBinningIndices;
 
-
-        private ClusterInfo m_ClusterInfo;
+        private ClusterInfo m_BigClusterInfo;
+        private ClusterInfo m_SmallClusterInfo;
         private ZBinningInfo m_ZBinningInfo;
         private LightViewSpaceDistanceComparer m_LightComparer;
 
-        private LightCullingBroadPhaseJobData m_BroadPhaseJobData;
-        private LightCullingNarrowPhaseJobData m_NarrowPhaseJobData;
+        private LightCullingTwoPhaseJobData m_BroadPhaseJobData;
+        private LightCullingTwoPhaseJobData m_NarrowPhaseJobData;
+        private LightCullingOnePhaseJobData _mOnePhaseJobData;
         private LightCullingZBinningJobData m_ZBinningJobData;
         private JobHandle m_BroadPhaseJob;
         private JobHandle m_NarrowPhaseJobHandle;
         private JobHandle m_ZBinningJob;
 
         
-        private int3 m_TileCount;
+        private int3 m_SmallTileCount;
+        private int3 m_BigTileCount;
 
         //private ComputeBuffer m_LightIndicesBuffer;
         //private ComputeBuffer m_TileLightCountBuffer;
@@ -440,16 +526,22 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             // do the allocation
             int tileSizeX = 64;
             int tileSizeY = 64;
-            m_TileCount.x = (1920 + tileSizeX - 1) / tileSizeX;
-            m_TileCount.y = (1080 + tileSizeY - 1) / tileSizeY;
-            m_TileCount.z = 1;
-            int lightIndicesCount = m_TileCount.x * m_TileCount.y * m_TileCount.z;
-            //m_clusterIndices = new NativeArray<int>(lightIndicesCount, Allocator.Persistent);
+            int bigTileSizeX = 256;
+            int bigTileSizeY = 256;
+            m_SmallTileCount.x = (1920 + tileSizeX - 1) / tileSizeX;
+            m_SmallTileCount.y = (1080 + tileSizeY - 1) / tileSizeY;
+            m_SmallTileCount.z = 1;
+            m_BigTileCount.x = (1920 + bigTileSizeX - 1) / bigTileSizeX;
+            m_BigTileCount.y = (1920 + bigTileSizeX - 1) / bigTileSizeX;
+            m_BigTileCount.z = 1;
+            
             m_LightComparer = new LightViewSpaceDistanceComparer();
-            m_ClusterInfo = new ClusterInfo();
+            m_BigClusterInfo = new ClusterInfo();
+            m_SmallClusterInfo = new ClusterInfo();
             m_ZBinningInfo = new ZBinningInfo();
-            m_BroadPhaseJobData = new LightCullingBroadPhaseJobData();
-            m_NarrowPhaseJobData = new LightCullingNarrowPhaseJobData();
+            m_BroadPhaseJobData = new LightCullingTwoPhaseJobData();
+            m_NarrowPhaseJobData = new LightCullingTwoPhaseJobData();
+            _mOnePhaseJobData = new LightCullingOnePhaseJobData();
             m_ZBinningJobData = new LightCullingZBinningJobData();
 
 
@@ -460,12 +552,16 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
 
         public void Execute(ScriptableRenderContext context, CullingResults cullingResults,Camera camera)
         {
-            int tileSizeX = 64;
-            int tileSizeY = 64;
-            m_TileCount.x = (camera.scaledPixelWidth + tileSizeX - 1) / tileSizeX;
-            m_TileCount.y = (camera.scaledPixelHeight + tileSizeY - 1) / tileSizeY;
-            m_TileCount.z = 1;
-            int lightIndicesCount = m_TileCount.x * m_TileCount.y * m_TileCount.z;
+            int smallTileSizeX = 64;
+            int smallTileSizeY = 64;
+            int bigTileSizeX = 256;
+            int bigTileSizeY = 256;
+            m_SmallTileCount.x = (camera.scaledPixelWidth + smallTileSizeX - 1) / smallTileSizeX;
+            m_SmallTileCount.y = (camera.scaledPixelHeight + smallTileSizeY - 1) / smallTileSizeY;
+            m_SmallTileCount.z = 1;
+            m_BigTileCount.x = (camera.scaledPixelWidth + bigTileSizeX - 1) / bigTileSizeX;
+            m_BigTileCount.y = (camera.scaledPixelHeight + bigTileSizeY - 1) / bigTileSizeY;
+            m_BigTileCount.z = 1;
             int additionalLightCount = 0;
             int sortedLightIndex = 0;
             for (int i = 0; i < cullingResults.visibleLights.Length; i++)
@@ -479,8 +575,11 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             m_LightComparer.ViewCamera = camera;
             m_LightComparer.CameraForward = camera.transform.forward;
             m_SortedLights = new NativeArray<VisibleLight>(additionalLightCount, Allocator.TempJob);
-            m_LightTileIndices = new NativeArray<TileLightIndex>(m_TileCount.x * m_TileCount.y, Allocator.TempJob);
-            m_LightZBinningIndices = new NativeArray<TileLightIndex>(ZBinningCount,Allocator.TempJob);
+            m_LightTileIndices = new NativeArray<TileLightIndex>(m_SmallTileCount.x * m_SmallTileCount.y, Allocator.TempJob);
+            m_SmallTileIndices = new NativeArray<BitField32>(m_SmallTileCount.x * m_SmallTileCount.y, Allocator.TempJob);
+            
+            m_BigTileIndices = new NativeArray<BitField32>(m_BigTileCount.x * m_BigTileCount.y, Allocator.TempJob);
+            m_LightZBinningIndices = new NativeArray<TileLightIndex>(ZBinningCount, Allocator.TempJob);
             for (int i = 0; i < cullingResults.visibleLights.Length; i++)
             {
                 if (cullingResults.visibleLights[i].light.type == LightType.Point ||
@@ -496,22 +595,48 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             m_SortedLights.Sort(m_LightComparer); // wish the sorting works well
             var lightPos = new NativeArray<float3>(m_SortedLights.Length, Allocator.TempJob); // switch to float4 if neeed to use uniform buffer
             var lightRange = new NativeArray<float>(m_SortedLights.Length, Allocator.TempJob);
-            var tileLightCount = new NativeArray<int>(m_TileCount.x * m_TileCount.y, Allocator.TempJob);
-            var tileLightIndicesMinMax = new NativeArray<uint2>(m_TileCount.x * m_TileCount.y, Allocator.TempJob);
+            var tileLightCount = new NativeArray<int>(m_SmallTileCount.x * m_SmallTileCount.y, Allocator.TempJob);
+            var bigTileLightIndicesMinMax = new NativeArray<uint2>(m_BigTileCount.x * m_BigTileCount.y, Allocator.TempJob);
+            var tileLightIndicesMinMax = new NativeArray<uint2>(m_SmallTileCount.x * m_SmallTileCount.y, Allocator.TempJob);
             for (var i = 0; i < m_SortedLights.Length; i++)
             {
                 lightPos[i] = m_SortedLights[i].light.transform.position;
                 lightRange[i] = m_SortedLights[i].range;
             }
              
-            m_ClusterInfo.Update(m_TileCount, camera);
+            m_SmallClusterInfo.Update(m_SmallTileCount, camera);
+            m_BigClusterInfo.Update(m_BigTileCount, camera);
             m_ZBinningInfo.Update(ZBinningCount,camera);
+            
+            TileInfo tileInfo = new TileInfo();
+            tileInfo.BigTileCount = m_BigTileCount.xy;
+            tileInfo.BigTileSize = new int2(bigTileSizeX, bigTileSizeY);
+            tileInfo.SmallTileCount = m_SmallTileCount.xy;
+            tileInfo.SmallTileSize = new int2(smallTileSizeX,smallTileSizeY);
             
             // BroadPhaseJob();
             
             // NarrowPhaseJob();
-            m_NarrowPhaseJobData.Prepare(lightPos,lightRange,m_LightTileIndices, tileLightCount,tileLightIndicesMinMax, m_TileCount,m_ClusterInfo);
-            m_NarrowPhaseJobHandle = m_NarrowPhaseJobData.Schedule(m_LightTileIndices.Length, m_LightTileIndices.Length);
+            NativeArray<BitField32> dummpyLightTileIndices = new NativeArray<BitField32>(m_BigTileCount.x * m_BigTileCount.y ,Allocator.TempJob);
+            _mOnePhaseJobData.Prepare(lightPos,lightRange,m_LightTileIndices, tileLightCount,tileLightIndicesMinMax, m_SmallTileCount,m_SmallClusterInfo);
+            
+            // BroadPhase()
+            // FillData()
+            // NarrowPhase()
+            
+            var bitFiledOnes = new BitField32(~0U);
+            for (var i = 0; i < m_BigTileIndices.Length; i++)
+            {
+                dummpyLightTileIndices[i] = bitFiledOnes;
+                m_BigTileIndices[i] = bitFiledOnes;
+            }
+            m_BroadPhaseJobData.Prepare(lightPos,lightRange,dummpyLightTileIndices,m_BigTileIndices, tileLightCount,tileLightIndicesMinMax,m_BigClusterInfo, m_BigTileCount.xy, new int2(1,1));
+            m_NarrowPhaseJobData.Prepare(lightPos,lightRange,m_BigTileIndices,m_SmallTileIndices ,tileLightCount,tileLightIndicesMinMax,m_SmallClusterInfo,m_SmallTileCount.xy, new int2(bigTileSizeX/smallTileSizeX,bigTileSizeY/smallTileSizeY));
+            //m_NarrowPhaseJobHandle = _mOnePhaseJobData.Schedule(m_LightTileIndices.Length, m_LightTileIndices.Length);
+            m_NarrowPhaseJobHandle = m_BroadPhaseJobData.Schedule(m_BigTileCount.x * m_BigTileCount.y, m_BigTileCount.x * m_BigTileCount.y);
+            m_NarrowPhaseJobHandle.Complete();
+            
+            m_NarrowPhaseJobHandle = m_NarrowPhaseJobData.Schedule(m_SmallTileCount.x*m_SmallTileCount.y, m_SmallTileCount.x*m_SmallTileCount.y);
             m_NarrowPhaseJobHandle.Complete();
 
             // start jobs
@@ -521,17 +646,22 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             // build structured buffer
 
             BuildSSBO(context, m_SortedLights, tileLightCount, tileLightIndicesMinMax,
-                new float4(tileSizeX,tileSizeY, 1.0f/tileSizeX, 1.0f/tileSizeY),m_TileCount.x, m_TileCount.y);
+                new float4(smallTileSizeX,smallTileSizeY, 1.0f/smallTileSizeX, 1.0f/smallTileSizeY),m_SmallTileCount.x, m_SmallTileCount.y);
             // set to command
 
             // Clean Up
+            dummpyLightTileIndices.Dispose();
+            bigTileLightIndicesMinMax.Dispose();
             tileLightIndicesMinMax.Dispose();
             tileLightCount.Dispose();
             lightPos.Dispose();
             lightRange.Dispose();
+            m_SmallTileIndices.Dispose();
             m_ZBinningInfo.Dispose();
-            m_ClusterInfo.Dispose();
+            m_BigClusterInfo.Dispose();
+            m_SmallClusterInfo.Dispose();
             m_LightZBinningIndices.Dispose();
+            m_BigTileIndices.Dispose();
             m_LightTileIndices.Dispose();
             m_SortedLights .Dispose();
 
@@ -651,7 +781,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
         {
             var cmd = CommandBufferPool.Get("SetLightingBuffer");
 
-            var maxAdditionalLightsCount = 256;
+            var maxAdditionalLightsCount = 64;
             var additionalLightCount = min(sortedLights.Length, maxAdditionalLightsCount);
             var tileLightCountBuffer = ShaderData.instance.GetTileLightCountBuffer(tileLightCount.Length);
             tileLightCountBuffer.SetData(tileLightCount);
@@ -673,8 +803,10 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             
             
             //TODO:Update light indices buffer
+            //var lightIndicesBuffer = ShaderData.instance.GetLightIndicesBuffer(tileCountX*tileCountY);
+            //lightIndicesBuffer.SetData(m_LightTileIndices);
             var lightIndicesBuffer = ShaderData.instance.GetLightIndicesBuffer(tileCountX*tileCountY);
-            lightIndicesBuffer.SetData(m_LightTileIndices);
+            lightIndicesBuffer.SetData(m_SmallTileIndices);
 
             var tileLightIndicesMinMaxBuffer =
                 ShaderData.instance.GetTileLightIndicesMinMaxBuffer(tileCountX * tileCountY);
@@ -691,6 +823,8 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             cmd.SetGlobalBuffer("TileLightIndicesMinMaxBuffer",tileLightIndicesMinMaxBuffer);
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
+
+            additionalLightsData.Dispose();
         }
         public void Dispose()
         {

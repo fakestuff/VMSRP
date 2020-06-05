@@ -31,7 +31,7 @@
             
             // LightData is define in SurfaceInput
             StructuredBuffer<LightData> LightDataBuffer;
-            StructuredBuffer<uint4> TileLightIndicesBuffer;
+            StructuredBuffer<uint> TileLightIndicesBuffer;
             StructuredBuffer<uint2> TileLightIndicesMinMaxBuffer;
             #include "Packages/com.render-pipelines.custom/ShaderLibrary/Lighting.hlsl"
  
@@ -127,14 +127,6 @@
             
             half4 Fragment(Varyings IN) : SV_Target
             {
-                
-                // Albedo Alpha is used for material Mask
-                // use stnecil to 
-                /*half materialID = albedo.a;
-                if (materialID > 0.01)
-                {
-                    return half4(0,0,0,0);
-                }*/
                 
                 
                 SurfaceData surfaceData;
