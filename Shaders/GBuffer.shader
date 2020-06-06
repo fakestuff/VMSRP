@@ -240,6 +240,65 @@
             //}
             ENDHLSL
         }
+        
+        Pass
+        {
+            Name "Forward"
+            Tags { "LightMode" = "Forward" } // This will be only for opaque object based on the RenderQueue index
+
+            /*Blend[_SrcBlend][_DstBlend]
+            ZWrite[_ZWrite]
+            Cull[_Cull]*/
+            
+            /*Stencil
+            {
+                WriteMask [_StencilWriteMaskGBuffer]
+                Ref [_StencilRefGBuffer]
+                Comp Always
+                Pass Replace
+            }*/
+
+            HLSLPROGRAM
+            // -------------------------------------
+            // Material Keywords
+            /*#pragma shader_feature _NORMALMAP
+            #pragma shader_feature _ALPHATEST_ON
+            #pragma shader_feature _ALPHAPREMULTIPLY_ON
+            #pragma shader_feature _EMISSION
+            #pragma shader_feature _METALLICSPECGLOSSMAP
+            #pragma shader_feature _SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A
+            //#pragma shader_feature _OCCLUSIONMAP
+            
+            #pragma shader_feature _SPECULARHIGHLIGHTS_OFF
+            #pragma shader_feature _GLOSSYREFLECTIONS_OFF
+            #pragma shader_feature _SPECULAR_SETUP
+            #pragma shader_feature _RECEIVE_SHADOWS_OFF
+
+            // -------------------------------------
+            // Unity defined keywords
+            #pragma multi_compile _ DIRLIGHTMAP_COMBINED
+            #pragma multi_compile _ LIGHTMAP_ON*/
+            #define _NORMALMAP
+            #define BUMP_SCALE_NOT_SUPPORTED 1
+            #define _OCCLUSIONMAP
+            #define _METALLICSPECGLOSSMAP
+            //--------------------------------------
+            // GPU Instancing
+            //#pragma multi_compile_instancing
+        
+            #pragma vertex LitPassVertex
+            #pragma fragment LitPassFragment
+            
+            //#include "Packages/com.render-pipelines.custom/Shaders/GBufferInput.hlsl"
+            //#include "Packages/com.render-pipelines.custom/Shaders/GBuffer.hlsl"
+            #include "Packages/com.render-pipelines.custom/Shaders/LitInput.hlsl"
+            #include "Packages/com.render-pipelines.custom/Shaders/LitForwardPass.hlsl"
+            //#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/UnityInstancing.hlsl"
+            //#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/SpaceTransforms.hlsl"
+            //#include "LWRP/ShaderLibrary/InputSurfacePBR.hlsl"
+            //#include "LWRP/ShaderLibrary/LightweightPassLit.hlsl"
+            ENDHLSL
+        }
 
         //UsePass "LightweightPipeline/Standard (Physically Based)/Meta"
     }

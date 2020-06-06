@@ -2,7 +2,7 @@
 {
     public static class ShaderPassTag
     {
-        public static ShaderTagId ForwardLit = new ShaderTagId("ForwardLit");
+        public static ShaderTagId Forward = new ShaderTagId("Forward");
         public static ShaderTagId GBuffer = new ShaderTagId("GBuffer");
     }
 

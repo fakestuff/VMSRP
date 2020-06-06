@@ -123,7 +123,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
 
             // ShaderTagId must match the "LightMode" tag inside the shader pass.
             // If not "LightMode" tag is found the object won't render.
-            DrawingSettings opaqueDrawingSettings = new DrawingSettings(ShaderPassTag.GBuffer, opaqueSortingSettings);
+            DrawingSettings opaqueDrawingSettings = new DrawingSettings(ShaderPassTag.Forward, opaqueSortingSettings);
             opaqueDrawingSettings.enableDynamicBatching = enableDynamicBatching;
             opaqueDrawingSettings.enableInstancing = enableInstancing;
             opaqueDrawingSettings.perObjectData = perObjectData;
@@ -154,7 +154,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             //CoreUtils.SetRenderTarget(cmd, m_GBufferRTIDs, m_DepthBufferRTID, ClearFlag.All);
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
-            context.DrawRenderers(cullingResults, ref opaqueDrawingSettings, ref opaqueFilteringSettings);
+            context.DrawRenderers(cullingResults, ref gBufferDrawingSettings, ref opaqueFilteringSettings);
             
             
 

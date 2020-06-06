@@ -167,7 +167,7 @@ Light GetAdditionalPerObjectLight(int perObjectLightIndex, float3 positionWS)
     return light;
 }
 */
-/*
+
 #if USE_CLUSTER_LIGHTING
 // Fills a light struct given a perObjectLightIndex
 Light GetAdditionalPerObjectLight(int lightBufferIndex, float3 positionWS)
@@ -220,7 +220,7 @@ Light GetAdditionalPerObjectLight(int lightBufferIndex, float3 positionWS)
     return light;
 }
 #endif
-*/
+
 
 uint GetPerObjectLightIndexOffset()
 {
