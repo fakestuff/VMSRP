@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 using UnityEngine.Experimental.Rendering;
-
+using Unity.Collections;
 namespace UnityEngine.Rendering.CustomRenderPipeline
 {
     
@@ -142,19 +142,7 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             // Render Opaque objects given the filtering and settings computed above.
             // This functions will sort and batch objects.
             
-            // DrawGBuffers
-            DrawingSettings gBufferDrawingSettings = new DrawingSettings(ShaderPassTag.GBuffer, opaqueSortingSettings);
-            gBufferDrawingSettings.enableDynamicBatching = enableDynamicBatching;
-            gBufferDrawingSettings.enableInstancing = enableInstancing;
-            gBufferDrawingSettings.perObjectData = perObjectData;
-            cmd = CommandBufferPool.Get("Gbuffer");
-            cmd.SetRenderTarget(m_GBufferRTIDs,m_DepthBufferRTID);
-            cmd.ClearRenderTarget(true, true, camera.backgroundColor);
             
-            //CoreUtils.SetRenderTarget(cmd, m_GBufferRTIDs, m_DepthBufferRTID, ClearFlag.All);
-            context.ExecuteCommandBuffer(cmd);
-            CommandBufferPool.Release(cmd);
-            context.DrawRenderers(cullingResults, ref gBufferDrawingSettings, ref opaqueFilteringSettings);
             
             
 
@@ -177,8 +165,11 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
 
         void DeferredLightPass(ScriptableRenderContext context, CullingResults cullingResults, Camera camera)
         {
-            var cmd = CommandBufferPool.Get("DeferredLightPass");
-
+            var cmd = CommandBufferPool.Get("SetupGlobalLights");
+            
+            SortingSettings opaqueSortingSettings = new SortingSettings(camera);
+            opaqueSortingSettings.criteria = SortingCriteria.CommonOpaque;
+            FilteringSettings opaqueFilteringSettings = new FilteringSettings(RenderQueueRange.opaque);
             if (cullingResults.visibleLights.Length > 0)
             {
                 VisibleLight lightData = cullingResults.visibleLights[0];
@@ -189,25 +180,109 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             }
             if ( cullingResults.visibleReflectionProbes.Length>0)
                 cmd.SetGlobalTexture("unity_SpecCube0", cullingResults.visibleReflectionProbes[0].texture);
-            cmd.SetGlobalVector("unity_SpecCube0_HDR", new Vector4(1,1,0,0));
-            // Bind buffers
-            cmd.SetGlobalTexture("_GBufferAlbedo", m_GBufferRTIDs[0]);
-            cmd.SetGlobalTexture("_GBufferNormal", m_GBufferRTIDs[1]);
-            cmd.SetGlobalTexture("_GBufferMetallicOcclusionSmoothness", m_GBufferRTIDs[2]);
-            cmd.SetGlobalTexture("_GBufferDepth", m_DepthBufferRTID);
-            cmd.SetGlobalInt("_TileCountX", (camera.scaledPixelWidth + 64 - 1) / 64);
-            cmd.SetGlobalInt("_TileCountY", (camera.scaledPixelHeight + 64 - 1) / 64);
-            cmd.SetGlobalVector("unity_LightData", new Vector4(6,0,1,0));
-            //Set RenderTarget
-            cmd.SetRenderTarget(m_ColorBuffer,RenderBufferLoadAction.DontCare,RenderBufferStoreAction.Store);
-            cmd.ClearRenderTarget(true,true,Color.black,0.0f);
-            //cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
-            //cmd.SetViewport(camera.pixelRect);
-            cmd.DrawMesh(CustomRenderPipeline.fullscreenMesh, Matrix4x4.identity, m_DeferredLightingMat, 0, 0);
-            //cmd.SetViewport(new Rect(0,0,camera.scaledPixelWidth, camera.scaledPixelHeight));
-            
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
+            bool useRenderPass = false;
+            if (!useRenderPass)
+            {
+                bool enableDynamicBatching = false;
+                bool enableInstancing = false;
+                PerObjectData perObjectData = PerObjectData.None;
+                // DrawGBuffers
+                DrawingSettings gBufferDrawingSettings = new DrawingSettings(ShaderPassTag.GBuffer, opaqueSortingSettings);
+                gBufferDrawingSettings.enableDynamicBatching = enableDynamicBatching;
+                gBufferDrawingSettings.enableInstancing = enableInstancing;
+                gBufferDrawingSettings.perObjectData = perObjectData;
+                cmd = CommandBufferPool.Get("Gbuffer");
+                cmd.SetRenderTarget(m_GBufferRTIDs,m_DepthBufferRTID);
+                cmd.ClearRenderTarget(true, true, camera.backgroundColor);
+            
+                //CoreUtils.SetRenderTarget(cmd, m_GBufferRTIDs, m_DepthBufferRTID, ClearFlag.All);
+                context.ExecuteCommandBuffer(cmd);
+                CommandBufferPool.Release(cmd);
+                context.DrawRenderers(cullingResults, ref gBufferDrawingSettings, ref opaqueFilteringSettings);
+                cmd = CommandBufferPool.Get("DeferredLightingPass");
+                cmd.SetGlobalVector("unity_SpecCube0_HDR", new Vector4(1,1,0,0));
+                // Bind buffers
+                cmd.SetGlobalTexture("_GBufferAlbedo", m_GBufferRTIDs[0]);
+                cmd.SetGlobalTexture("_GBufferNormal", m_GBufferRTIDs[1]);
+                cmd.SetGlobalTexture("_GBufferMetallicOcclusionSmoothness", m_GBufferRTIDs[2]);
+                cmd.SetGlobalTexture("_GBufferDepth", m_DepthBufferRTID);
+                cmd.SetGlobalInt("_TileCountX", (camera.scaledPixelWidth + 64 - 1) / 64);
+                cmd.SetGlobalInt("_TileCountY", (camera.scaledPixelHeight + 64 - 1) / 64);
+                cmd.SetGlobalVector("unity_LightData", new Vector4(6,0,1,0));
+                //Set RenderTarget
+                cmd.SetRenderTarget(m_ColorBuffer,RenderBufferLoadAction.DontCare,RenderBufferStoreAction.Store);
+                cmd.ClearRenderTarget(true,true,Color.black,0.0f);
+                //cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
+                //cmd.SetViewport(camera.pixelRect);
+                cmd.DrawMesh(CustomRenderPipeline.fullscreenMesh, Matrix4x4.identity, m_DeferredLightingMat, 0, 0);
+                context.ExecuteCommandBuffer(cmd);
+                CommandBufferPool.Release(cmd);
+                //cmd.SetViewport(new Rect(0,0,camera.scaledPixelWidth, camera.scaledPixelHeight));
+            }
+            else
+            {
+                var colorBuffer = new AttachmentDescriptor(RenderTextureFormat.ARGBHalf); // 64 bit
+                var depthBuffer = new AttachmentDescriptor(RenderTextureFormat.Depth); // 32 bit
+                var albedoGBuffer = new AttachmentDescriptor(RenderTextureFormat.ARGB32); // 32 bit
+                var normalGBuffer = new AttachmentDescriptor(RenderTextureFormat.ARGBHalf); // 64 bit
+                var pbrGBuffer = new AttachmentDescriptor(RenderTextureFormat.ARGB32); // 32
+                var depthGBuffer = new AttachmentDescriptor(RenderTextureFormat.RFloat); // 32 bit
+                
+                colorBuffer.ConfigureClear(new Color(0.0f, 0.0f, 0.0f, 0.0f), 1.0f, 0);
+                depthBuffer.ConfigureClear(new Color(), 1.0f, 0);
+                colorBuffer.ConfigureTarget(BuiltinRenderTextureType.CameraTarget, false, true);
+                
+                var attachments = new NativeArray<AttachmentDescriptor>(6, Allocator.Temp);
+                const int colorBufferId = 0, depthBufferId = 1, albedoGBufferId = 2,  normalGBufferId = 3, pbrGbufferId = 4, depthGBufferId = 5;
+                attachments[colorBufferId] = colorBuffer;
+                attachments[depthBufferId] = depthBuffer;
+                attachments[albedoGBufferId] = albedoGBuffer;
+                attachments[normalGBufferId] = normalGBuffer;
+                attachments[pbrGbufferId] = pbrGBuffer;
+                attachments[depthGBufferId] = depthGBuffer;
+                
+                using (context.BeginScopedRenderPass(camera.scaledPixelWidth, camera.scaledPixelHeight, 1, attachments, depthBufferId))
+                {
+                    attachments.Dispose();
+                    var gBuffers = new NativeArray<int>(4, Allocator.Temp);
+
+                    gBuffers[0] = colorBufferId;
+                    gBuffers[1] = albedoGBufferId;
+                    gBuffers[2] = normalGBufferId;
+                    gBuffers[3] = pbrGbufferId;
+                    gBuffers[4] = depthGBufferId;
+                    using (context.BeginScopedSubPass(gBuffers))
+                    {
+
+                        //RenderGbuffer(cullResults, camera, context);
+                    }
+                    var lightingColors = new NativeArray<int>(1, Allocator.Temp);
+                    lightingColors[0] = colorBufferId;
+                    var lightingInputs = new NativeArray<int>(5, Allocator.Temp);
+                    lightingInputs[0] = colorBufferId;
+                    lightingColors[1] = albedoGBufferId;
+                    lightingColors[2] = normalGBufferId;
+                    lightingColors[3] = pbrGbufferId;
+                    lightingColors[4] = depthGBufferId;
+                    using (context.BeginScopedSubPass(lightingColors, lightingInputs, true))
+                    {
+                        lightingColors.Dispose();
+                        lightingInputs.Dispose();
+                        
+                        // RenderLighting(camera, cullResults, context);
+                        
+                    }
+
+
+                }
+
+
+            }
+            
+            
+            
         }
 
         void DebugPass(ScriptableRenderContext context, CullingResults cullingResults, Camera camera)
