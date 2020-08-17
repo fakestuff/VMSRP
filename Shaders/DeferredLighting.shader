@@ -44,6 +44,12 @@
             SAMPLER(sampler_GBufferMetallicOcclusionSmoothness);
             SAMPLER(sampler_GBufferDepth);
             
+            UNITY_DECLARE_FRAMEBUFFER_INPUT_FLOAT(0); // Color
+            UNITY_DECLARE_FRAMEBUFFER_INPUT_FLOAT(1); // Albedo
+            UNITY_DECLARE_FRAMEBUFFER_INPUT_FLOAT(2); // Normal
+            UNITY_DECLARE_FRAMEBUFFER_INPUT_FLOAT(3); // SpecRoughness
+            //UNITY_DECLARE_FRAMEBUFFER_INPUT_FLOAT(4); // Depth
+            
             CBUFFER_START(UnityPerMaterial)
             float4 _GBufferAlbedo_ST;
             CBUFFER_END
@@ -147,7 +153,9 @@
                 half4 color = UniversalFragmentPBRCluster(inputData, surfaceData.albedo, surfaceData.metallic, surfaceData.specular, surfaceData.smoothness, surfaceData.occlusion, surfaceData.emission, surfaceData.alpha,
                 tileBufferIndex, zBinningIndex);
 
+                //float3 albedo = UNITY_READ_FRAMEBUFFER_INPUT(0, IN.uv).rgb;
                 return color;
+                //return half4(color,1.0f);
             }
             
             ENDHLSL

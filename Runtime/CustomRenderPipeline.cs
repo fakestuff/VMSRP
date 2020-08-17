@@ -223,66 +223,173 @@ namespace UnityEngine.Rendering.CustomRenderPipeline
             }
             else
             {
-                var colorBuffer = new AttachmentDescriptor(RenderTextureFormat.ARGBHalf); // 64 bit
-                var depthBuffer = new AttachmentDescriptor(RenderTextureFormat.Depth); // 32 bit
-                var albedoGBuffer = new AttachmentDescriptor(RenderTextureFormat.ARGB32); // 32 bit
-                var normalGBuffer = new AttachmentDescriptor(RenderTextureFormat.ARGBHalf); // 64 bit
-                var pbrGBuffer = new AttachmentDescriptor(RenderTextureFormat.ARGB32); // 32
-                var depthGBuffer = new AttachmentDescriptor(RenderTextureFormat.RFloat); // 32 bit
-                
-                colorBuffer.ConfigureClear(new Color(0.0f, 0.0f, 0.0f, 0.0f), 1.0f, 0);
-                depthBuffer.ConfigureClear(new Color(), 1.0f, 0);
-                colorBuffer.ConfigureTarget(BuiltinRenderTextureType.CameraTarget, false, true);
-                
-                var attachments = new NativeArray<AttachmentDescriptor>(6, Allocator.Temp);
-                const int colorBufferId = 0, depthBufferId = 1, albedoGBufferId = 2,  normalGBufferId = 3, pbrGbufferId = 4, depthGBufferId = 5;
-                attachments[colorBufferId] = colorBuffer;
-                attachments[depthBufferId] = depthBuffer;
-                attachments[albedoGBufferId] = albedoGBuffer;
-                attachments[normalGBufferId] = normalGBuffer;
-                attachments[pbrGbufferId] = pbrGBuffer;
-                attachments[depthGBufferId] = depthGBuffer;
-                
-                using (context.BeginScopedRenderPass(camera.scaledPixelWidth, camera.scaledPixelHeight, 1, attachments, depthBufferId))
+                // var colorBuffer = new AttachmentDescriptor(RenderTextureFormat.ARGBHalf); // 64 bit
+                // var depthBuffer = new AttachmentDescriptor(RenderTextureFormat.Depth); // 32 bit
+                // var albedoGBuffer = new AttachmentDescriptor(RenderTextureFormat.ARGB32); // 32 bit
+                // var normalGBuffer = new AttachmentDescriptor(RenderTextureFormat.ARGBHalf); // 64 bit
+                // var pbrGBuffer = new AttachmentDescriptor(RenderTextureFormat.ARGB32); // 32
+                // var depthGBuffer = new AttachmentDescriptor(RenderTextureFormat.RFloat); // 32 bit
+                //
+                // colorBuffer.ConfigureClear(new Color(0.0f, 0.0f, 0.0f, 0.0f), 1.0f, 0);
+                // depthBuffer.ConfigureClear(new Color(), 1.0f, 0);
+                // colorBuffer.ConfigureTarget(BuiltinRenderTextureType.CameraTarget, true, true);
+                //
+                // var attachments = new NativeArray<AttachmentDescriptor>(6, Allocator.Temp);
+                // const int colorBufferId = 0, depthBufferId = 1, albedoGBufferId = 2,  normalGBufferId = 3, pbrGbufferId = 4, depthGBufferId = 5;
+                // //const int colorBufferId = 0,  albedoGBufferId = 2,  normalGBufferId = 3, pbrGbufferId = 4, depthGBufferId = 5;
+                // attachments[colorBufferId] = colorBuffer;
+                // attachments[depthBufferId] = depthBuffer;
+                // attachments[albedoGBufferId] = albedoGBuffer;
+                // attachments[normalGBufferId] = normalGBuffer;
+                // attachments[pbrGbufferId] = pbrGBuffer;
+                // attachments[depthGBufferId] = depthGBuffer;
+                //
+                // using (context.BeginScopedRenderPass(camera.scaledPixelWidth, camera.scaledPixelHeight, 1, attachments, depthBufferId))
+                // {
+                //     attachments.Dispose();
+                //     var gBuffers = new NativeArray<int>(4, Allocator.Temp);
+                //
+                //     //gBuffers[0] = colorBufferId;
+                //     gBuffers[0] = albedoGBufferId;
+                //     gBuffers[1] = normalGBufferId;
+                //     gBuffers[2] = pbrGbufferId;
+                //     gBuffers[3] = depthGBufferId;
+                //     using (context.BeginScopedSubPass(gBuffers))
+                //     {
+                //         RenderGbufferSubPass(context, cullingResults, camera);
+                //     }
+                //     var lightingColors = new NativeArray<int>(1, Allocator.Temp);
+                //     lightingColors[0] = colorBufferId;
+                //     var lightingInputs = new NativeArray<int>(4, Allocator.Temp);
+                //     lightingInputs[0] = albedoGBufferId;
+                //     //lightingInputs[1] = albedoGBufferId;
+                //     lightingInputs[1] = normalGBufferId;
+                //     lightingInputs[2] = pbrGbufferId;
+                //     lightingInputs[3] = depthGBufferId;
+                //     using (context.BeginScopedSubPass(lightingColors, lightingInputs, true))
+                //     {
+                //         lightingColors.Dispose();
+                //         lightingInputs.Dispose();
+                //         
+                //         // RenderLighting(camera, cullResults, context);
+                //         RenderDeferredLightingSubPass(context, cullingResults, camera);
+                //     }
+                //
+                //
+                // }
+                var albedo = new AttachmentDescriptor(RenderTextureFormat.ARGB32);
+                var specRough = new AttachmentDescriptor(RenderTextureFormat.ARGB32);
+                var normal = new AttachmentDescriptor(RenderTextureFormat.ARGB2101010);
+                var emission = new AttachmentDescriptor(RenderTextureFormat.ARGBHalf);
+                var depth = new AttachmentDescriptor(RenderTextureFormat.Depth);
+                emission.ConfigureClear(new Color(0.0f, 0.0f, 0.0f, 0.0f), 1.0f, 0);
+                depth.ConfigureClear(new Color(), 1.0f, 0);
+                albedo.ConfigureTarget(BuiltinRenderTextureType.CameraTarget, false, true);
+                var attachments = new NativeArray<AttachmentDescriptor>(5, Allocator.Temp);
+                const int depthIndex = 0, albedoIndex = 1, specRoughIndex = 2, normalIndex = 3, emissionIndex = 4;
+                attachments[depthIndex] = depth;
+                attachments[albedoIndex] = albedo;
+                attachments[specRoughIndex] = specRough;
+                attachments[normalIndex] = normal;
+                attachments[emissionIndex] = emission;
+                using (context.BeginScopedRenderPass(camera.pixelWidth, camera.pixelHeight, 1, attachments, depthIndex))
                 {
                     attachments.Dispose();
-                    var gBuffers = new NativeArray<int>(4, Allocator.Temp);
 
-                    gBuffers[0] = colorBufferId;
-                    gBuffers[1] = albedoGBufferId;
-                    gBuffers[2] = normalGBufferId;
-                    gBuffers[3] = pbrGbufferId;
-                    gBuffers[4] = depthGBufferId;
-                    using (context.BeginScopedSubPass(gBuffers))
+                    // Start the first subpass, GBuffer creation: render to albedo, specRough, normal and emission, no need to read any input attachments
+                    var gbufferColors = new NativeArray<int>(4, Allocator.Temp);
+                    gbufferColors[0] = albedoIndex;
+                    gbufferColors[1] = specRoughIndex;
+                    gbufferColors[2] = normalIndex;
+                    gbufferColors[3] = emissionIndex;
+                    using (context.BeginScopedSubPass(gbufferColors))
                     {
+                        gbufferColors.Dispose();
 
-                        //RenderGbuffer(cullResults, camera, context);
+                        // Render the deferred G-Buffer
+                        RenderGbufferSubPass(context, cullingResults, camera);
                     }
+
+                    // Second subpass, lighting: Render to the emission buffer, read from albedo, specRough, normal and depth.
+                    // The last parameter indicates whether the depth buffer can be bound as read-only.
+                    // Note that some renderers (notably iOS Metal) won't allow reading from the depth buffer while it's bound as Z-buffer,
+                    // so those renderers should write the Z into an additional FP32 render target manually in the pixel shader and read from it instead
                     var lightingColors = new NativeArray<int>(1, Allocator.Temp);
-                    lightingColors[0] = colorBufferId;
-                    var lightingInputs = new NativeArray<int>(5, Allocator.Temp);
-                    lightingInputs[0] = colorBufferId;
-                    lightingColors[1] = albedoGBufferId;
-                    lightingColors[2] = normalGBufferId;
-                    lightingColors[3] = pbrGbufferId;
-                    lightingColors[4] = depthGBufferId;
+                    lightingColors[0] = emissionIndex;
+                    var lightingInputs = new NativeArray<int>(4, Allocator.Temp);
+                    lightingInputs[0] = albedoIndex;
+                    lightingInputs[1] = specRoughIndex;
+                    lightingInputs[2] = normalIndex;
+                    lightingInputs[3] = depthIndex;
                     using (context.BeginScopedSubPass(lightingColors, lightingInputs, true))
                     {
                         lightingColors.Dispose();
                         lightingInputs.Dispose();
-                        
-                        // RenderLighting(camera, cullResults, context);
-                        
+                    
+                        // PushGlobalShadowParams(context);
+                        RenderDeferredLightingSubPass(context, cullingResults, camera);
                     }
 
-
+                    // Third subpass, tonemapping: Render to albedo (which is bound to the camera target), read from emission.
+                    // var tonemappingColors = new NativeArray<int>(1, Allocator.Temp);
+                    // tonemappingColors[0] = albedoIndex;
+                    // var tonemappingInputs = new NativeArray<int>(1, Allocator.Temp);
+                    // tonemappingInputs[0] = emissionIndex;
+                    // using (context.BeginScopedSubPass(tonemappingColors, tonemappingInputs, true))
+                    // {
+                    //     tonemappingColors.Dispose();
+                    //     tonemappingInputs.Dispose();
+                    //
+                    //     // present frame buffer.
+                    //     // FinalPass(context);
+                    // }
                 }
-
-
             }
+        }
+
+        void RenderGbufferSubPass(ScriptableRenderContext context, CullingResults cullingResults, Camera camera)
+        {
+            bool enableDynamicBatching = false;
+            bool enableInstancing = false;
+            SortingSettings opaqueSortingSettings = new SortingSettings(camera);
+            PerObjectData perObjectData = PerObjectData.None;
+            // DrawGBuffers
+            DrawingSettings gBufferDrawingSettings = new DrawingSettings(ShaderPassTag.GBuffer, opaqueSortingSettings);
+            FilteringSettings opaqueFilteringSettings = new FilteringSettings(RenderQueueRange.opaque);
             
+            gBufferDrawingSettings.enableDynamicBatching = enableDynamicBatching;
+            gBufferDrawingSettings.enableInstancing = enableInstancing;
+            gBufferDrawingSettings.perObjectData = perObjectData;
+            var cmd = CommandBufferPool.Get("GbufferSubpass");
+            cmd.SetRenderTarget(m_GBufferRTIDs,m_DepthBufferRTID);
+            cmd.ClearRenderTarget(true, true, camera.backgroundColor);
             
-            
+            //CoreUtils.SetRenderTarget(cmd, m_GBufferRTIDs, m_DepthBufferRTID, ClearFlag.All);
+            context.ExecuteCommandBuffer(cmd);
+            CommandBufferPool.Release(cmd);
+            context.DrawRenderers(cullingResults, ref gBufferDrawingSettings, ref opaqueFilteringSettings);
+        }
+
+        void RenderDeferredLightingSubPass(ScriptableRenderContext context, CullingResults cullingResults, Camera camera)
+        {
+            var cmd = CommandBufferPool.Get("DeferredLightingPass");
+            cmd.SetGlobalVector("unity_SpecCube0_HDR", new Vector4(1,1,0,0));
+            // Bind buffers
+            cmd.SetGlobalTexture("_GBufferAlbedo", m_GBufferRTIDs[0]);
+            cmd.SetGlobalTexture("_GBufferNormal", m_GBufferRTIDs[1]);
+            cmd.SetGlobalTexture("_GBufferMetallicOcclusionSmoothness", m_GBufferRTIDs[2]);
+            cmd.SetGlobalTexture("_GBufferDepth", m_DepthBufferRTID);
+            cmd.SetGlobalInt("_TileCountX", (camera.scaledPixelWidth + 64 - 1) / 64);
+            cmd.SetGlobalInt("_TileCountY", (camera.scaledPixelHeight + 64 - 1) / 64);
+            cmd.SetGlobalVector("unity_LightData", new Vector4(6,0,1,0));
+            //Set RenderTarget
+            cmd.SetRenderTarget(m_ColorBuffer,RenderBufferLoadAction.DontCare,RenderBufferStoreAction.Store);
+            cmd.ClearRenderTarget(true,true,Color.black,0.0f);
+            //cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
+            //cmd.SetViewport(camera.pixelRect);
+            cmd.DrawMesh(CustomRenderPipeline.fullscreenMesh, Matrix4x4.identity, m_DeferredLightingMat, 0, 0);
+            context.ExecuteCommandBuffer(cmd);
+            CommandBufferPool.Release(cmd);
         }
 
         void DebugPass(ScriptableRenderContext context, CullingResults cullingResults, Camera camera)
